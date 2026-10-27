@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Filament\Pages\Tenancy\RegisterTenant;
 use App\Filament\Resources\TenantApplications\Pages\CreateTenantApplication;
+use App\Filament\Resources\TenantApplications\Pages\ListTenantApplications;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
+use Filament\Facades\Filament;
 use Laravel\Passport\Client;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Role;
@@ -24,11 +27,16 @@ test('admin can create an organization tenant and applications', function (): vo
 
     expect($tenant->id)->not->toBeNull();
 
+    $this->actingAs($admin);
+
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($tenant);
+    Filament::bootCurrentPanel();
+
     // Create development Next.js application
     Livewire::actingAs($admin)
         ->test(CreateTenantApplication::class)
         ->fillForm([
-            'tenant_id' => $tenant->id,
             'name' => 'Marketing WebApp',
             'framework' => 'nextjs',
             'environment' => 'development',
@@ -82,4 +90,64 @@ test('tenant application setup guide generates laravel sdk instructions', functi
     expect($app->getEnvSnippet())->toContain('KOAMISHIN_CLIENT_ID='.$client->id);
     expect($app->getSetupGuideCode())->toContain('Koamishin::getLoginUrl()');
     expect($app->getSetupGuideCode())->toContain('AuthenticateWithKoamishin');
+});
+
+test('user can register a new tenant organization via filament tenancy registration', function (): void {
+    Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+    $user = User::factory()->create();
+    $user->assignRole('super_admin');
+
+    $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+
+    Livewire::actingAs($user)
+        ->test(RegisterTenant::class)
+        ->fillForm([
+            'name' => 'New Organization',
+            'slug' => 'new-org',
+            'domain' => 'neworg.koamishin.com',
+        ])
+        ->call('register')
+        ->assertHasNoFormErrors();
+
+    $tenant = Tenant::query()->where('slug', 'new-org')->first();
+    expect($tenant)->not->toBeNull()
+        ->name->toBe('New Organization');
+
+    expect($user->tenants()->whereKey($tenant)->exists())->toBeTrue();
+});
+
+test('tenant applications are scoped strictly to the current tenant', function (): void {
+    Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+    $user = User::factory()->create();
+    $user->assignRole('super_admin');
+
+    $tenantA = Tenant::create(['name' => 'Org Alpha', 'slug' => 'org-alpha']);
+    $tenantB = Tenant::create(['name' => 'Org Beta', 'slug' => 'org-beta']);
+
+    TenantApplication::create([
+        'tenant_id' => $tenantA->id,
+        'name' => 'Alpha Internal App',
+        'framework' => 'nextjs',
+        'environment' => 'production',
+        'redirect_uris' => ['https://alpha.internal/callback'],
+    ]);
+
+    TenantApplication::create([
+        'tenant_id' => $tenantB->id,
+        'name' => 'Beta Internal App',
+        'framework' => 'laravel',
+        'environment' => 'development',
+        'redirect_uris' => ['http://localhost:8000/callback'],
+    ]);
+
+    $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($tenantA);
+    Filament::bootCurrentPanel();
+
+    Livewire::actingAs($user)
+        ->test(ListTenantApplications::class)
+        ->assertSee('Alpha Internal App')
+        ->assertDontSee('Beta Internal App');
 });

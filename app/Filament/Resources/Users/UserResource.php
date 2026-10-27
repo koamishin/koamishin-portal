@@ -40,6 +40,8 @@ class UserResource extends Resource
 
     protected static ?string $recordTitleAttribute = 'name';
 
+    protected static bool $isScopedToTenant = false;
+
     #[\Override]
     public static function form(Schema $schema): Schema
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\TenantApplications\Pages;
 
 use App\Filament\Resources\TenantApplications\TenantApplicationResource;
+use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Str;
 use Laravel\Passport\Client;
@@ -16,6 +17,10 @@ class CreateTenantApplication extends CreateRecord
     #[\Override]
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        if (empty($data['tenant_id']) && Filament::getTenant()) {
+            $data['tenant_id'] = Filament::getTenant()->getKey();
+        }
+
         if (empty($data['oauth_client_id'])) {
             $secret = Str::random(40);
 

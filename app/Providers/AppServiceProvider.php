@@ -38,6 +38,8 @@ class AppServiceProvider extends ServiceProvider
         $this->configureFeatures();
         $this->configurePassport();
 
+        \Filament\Resources\Resource::scopeToTenant(false);
+
         Gate::before(fn ($user, $ability): ?true => method_exists($user, 'hasRole') && $user->hasRole('super_admin') ? true : null);
 
         User::observe(UserObserver::class);

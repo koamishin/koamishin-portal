@@ -27,6 +27,8 @@ class FeatureFlagResource extends Resource
 
     protected static ?int $navigationSort = 10;
 
+    protected static bool $isScopedToTenant = false;
+
     #[\Override]
     public static function canCreate(): bool
     {

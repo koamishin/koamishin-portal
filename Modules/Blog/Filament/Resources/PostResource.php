@@ -24,6 +24,8 @@ class PostResource extends Resource
 
     protected static string|\UnitEnum|null $navigationGroup = 'Blog';
 
+    protected static bool $isScopedToTenant = false;
+
     public static function form(Schema $schema): Schema
     {
         return $schema

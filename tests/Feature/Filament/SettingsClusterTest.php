@@ -4,6 +4,7 @@ use App\Filament\Clusters\Settings\Pages\ApplicationDetailsSettingsPage;
 use App\Filament\Clusters\Settings\Pages\ApplicationFeaturesSettingsPage;
 use App\Filament\Clusters\Settings\Pages\ApplicationSecuritySettingsPage;
 use App\Filament\Clusters\Settings\SettingsCluster;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Settings\ApplicationDetailsSettings;
 use App\Settings\ApplicationFeaturesSettings;
@@ -22,6 +23,8 @@ beforeEach(function (): void {
     app()->forgetInstance(ApplicationDetailsSettings::class);
     app()->forgetInstance(ApplicationFeaturesSettings::class);
     app()->forgetInstance(ApplicationSecuritySettings::class);
+
+    $this->tenant = Tenant::firstOrCreate(['slug' => 'default'], ['name' => 'Default Organization', 'is_active' => true]);
 });
 
 test('settings cluster is registered in the admin panel', function (): void {
@@ -77,10 +80,11 @@ test('super admin users can access application details settings page', function 
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
-    filament()->setCurrentPanel('admin');
-
-    $response = $this->get(ApplicationDetailsSettingsPage::getUrl());
+    $response = $this->get(ApplicationDetailsSettingsPage::getUrl(['tenant' => $this->tenant]));
 
     $response->assertSuccessful();
 });
@@ -90,10 +94,11 @@ test('super admin users can access application features settings page', function
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
-    filament()->setCurrentPanel('admin');
-
-    $response = $this->get(ApplicationFeaturesSettingsPage::getUrl());
+    $response = $this->get(ApplicationFeaturesSettingsPage::getUrl(['tenant' => $this->tenant]));
 
     $response->assertSuccessful();
 });
@@ -103,10 +108,11 @@ test('super admin users can access application security settings page', function
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
-    filament()->setCurrentPanel('admin');
-
-    $response = $this->get(ApplicationSecuritySettingsPage::getUrl());
+    $response = $this->get(ApplicationSecuritySettingsPage::getUrl(['tenant' => $this->tenant]));
 
     $response->assertSuccessful();
 });
@@ -116,8 +122,9 @@ test('application details settings can be saved', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationDetailsSettingsPage::class)
         ->fillForm([
@@ -143,8 +150,9 @@ test('application features settings can be saved', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationFeaturesSettingsPage::class)
         ->fillForm([
@@ -172,8 +180,9 @@ test('application security settings can be saved', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationSecuritySettingsPage::class)
         ->fillForm([
@@ -200,8 +209,9 @@ test('site name is required for application details', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationDetailsSettingsPage::class)
         ->fillForm([
@@ -220,8 +230,9 @@ test('password min length must be at least 6', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationSecuritySettingsPage::class)
         ->fillForm([
@@ -239,8 +250,9 @@ test('auth layout can be changed to split', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(ApplicationFeaturesSettingsPage::class)
         ->fillForm([

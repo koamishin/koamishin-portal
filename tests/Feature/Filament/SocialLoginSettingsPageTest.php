@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Filament\Clusters\Settings\Pages\SocialLoginSettingsPage;
+use App\Models\Tenant;
 use App\Models\User;
 use App\Settings\SocialLoginSettings;
 use Filament\Facades\Filament;
@@ -17,6 +18,8 @@ beforeEach(function (): void {
     $this->artisan('migrate', ['--path' => 'database/settings', '--no-interaction' => true]);
 
     app()->forgetInstance(SocialLoginSettings::class);
+
+    $this->tenant = Tenant::firstOrCreate(['slug' => 'default'], ['name' => 'Default Organization', 'is_active' => true]);
 });
 
 test('social login settings page is registered in the admin panel', function (): void {
@@ -36,10 +39,11 @@ test('super admin users can access the social login settings page', function ():
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
-    filament()->setCurrentPanel('admin');
-
-    $response = $this->get(SocialLoginSettingsPage::getUrl());
+    $response = $this->get(SocialLoginSettingsPage::getUrl(['tenant' => $this->tenant]));
 
     $response->assertSuccessful();
 });
@@ -49,8 +53,9 @@ test('social login settings can be saved', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(SocialLoginSettingsPage::class)
         ->fillForm([
@@ -82,8 +87,9 @@ test('env override state is exposed on the page', function (): void {
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(SocialLoginSettingsPage::class)
         ->assertSet('providerStatuses', function (array $statuses): bool {
@@ -100,8 +106,9 @@ test('enabling a provider without credentials fails validation', function (): vo
     $user->assignRole('super_admin');
 
     $this->actingAs($user);
-
-    filament()->setCurrentPanel('admin');
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($this->tenant);
+    Filament::bootCurrentPanel();
 
     Livewire::test(SocialLoginSettingsPage::class)
         ->fillForm([

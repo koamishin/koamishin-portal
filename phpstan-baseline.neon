@@ -331,6 +331,12 @@ parameters:
 			path: tests/Feature/ExampleTest.php
 
 		-
+			rawMessage: Access to an undefined property Pest\PendingCalls\TestCall::$tenant.
+			identifier: property.notFound
+			count: 13
+			path: tests/Feature/Filament/SettingsClusterTest.php
+
+		-
 			rawMessage: 'Call to an undefined method Livewire\Features\SupportTesting\Testable::fillForm().'
 			identifier: method.notFound
 			count: 6
@@ -355,10 +361,22 @@ parameters:
 			path: tests/Feature/Filament/SettingsClusterTest.php
 
 		-
+			rawMessage: 'Call to an undefined static method App\Models\Tenant::firstOrCreate().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Filament/SettingsClusterTest.php
+
+		-
 			rawMessage: 'Call to an undefined static method Spatie\Permission\Models\Role::firstOrCreate().'
 			identifier: staticMethod.notFound
 			count: 3
 			path: tests/Feature/Filament/SettingsClusterTest.php
+
+		-
+			rawMessage: Access to an undefined property Pest\PendingCalls\TestCall::$tenant.
+			identifier: property.notFound
+			count: 6
+			path: tests/Feature/Filament/SocialLoginSettingsPageTest.php
 
 		-
 			rawMessage: 'Call to an undefined method Livewire\Features\SupportTesting\Testable::fillForm().'
@@ -381,6 +399,12 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::get().'
 			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Filament/SocialLoginSettingsPageTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method App\Models\Tenant::firstOrCreate().'
+			identifier: staticMethod.notFound
 			count: 1
 			path: tests/Feature/Filament/SocialLoginSettingsPageTest.php
 
@@ -555,25 +579,31 @@ parameters:
 		-
 			rawMessage: Access to an undefined property Pest\Mixins\Expectation<mixed>::$name.
 			identifier: property.notFound
-			count: 1
+			count: 2
 			path: tests/Feature/Tenancy/TenancyTest.php
 
 		-
 			rawMessage: 'Call to an undefined method Livewire\Features\SupportTesting\Testable<Livewire\Component>::fillForm().'
 			identifier: method.notFound
-			count: 1
+			count: 2
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::actingAs().'
+			identifier: method.notFound
+			count: 3
 			path: tests/Feature/Tenancy/TenancyTest.php
 
 		-
 			rawMessage: 'Call to an undefined static method App\Models\Tenant::create().'
 			identifier: staticMethod.notFound
-			count: 2
+			count: 4
 			path: tests/Feature/Tenancy/TenancyTest.php
 
 		-
 			rawMessage: 'Call to an undefined static method App\Models\TenantApplication::create().'
 			identifier: staticMethod.notFound
-			count: 1
+			count: 3
 			path: tests/Feature/Tenancy/TenancyTest.php
 
 		-
@@ -591,7 +621,7 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined static method Spatie\Permission\Models\Role::firstOrCreate().'
 			identifier: staticMethod.notFound
-			count: 1
+			count: 3
 			path: tests/Feature/Tenancy/TenancyTest.php
 
 		-

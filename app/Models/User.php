@@ -12,15 +12,17 @@ use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthenticationRecovery;
 use Filament\Auth\MultiFactor\Email\Concerns\InteractsWithEmailAuthentication;
 use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasTenants;
 use Filament\Panel;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
-use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Lab404\Impersonate\Models\Impersonate;
 use Laravel\Fortify\Contracts\PasskeyUser;
@@ -45,8 +47,9 @@ use Spatie\Permission\Traits\HasRoles;
  * @property Carbon|null $banned_at
  * @property string|null $ban_reason
  * @property-read Collection<int, SocialAccount> $socialAccounts
+ * @property-read Collection<int, Tenant> $tenants
  */
-class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasEmailAuthentication, MustVerifyEmail, OAuthenticatable, PasskeyUser
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasEmailAuthentication, HasTenants, MustVerifyEmail, OAuthenticatable, PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasRoles, Impersonate, Notifiable;
@@ -160,6 +163,27 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
         return $this->belongsToMany(Tenant::class, 'tenant_user')
             ->withPivot('role')
             ->withTimestamps();
+    }
+
+    /**
+     * @return Collection<int, Model>
+     */
+    public function getTenants(Panel $panel): Collection
+    {
+        if ($this->hasRole('super_admin')) {
+            return Tenant::query()->get();
+        }
+
+        return $this->tenants;
+    }
+
+    public function canAccessTenant(Model $tenant): bool
+    {
+        if ($this->hasRole('super_admin')) {
+            return true;
+        }
+
+        return $this->tenants()->whereKey($tenant)->exists();
     }
 
     public function isBanned(): bool

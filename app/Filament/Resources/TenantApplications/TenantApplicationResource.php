@@ -15,6 +15,7 @@ use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
@@ -44,6 +45,8 @@ class TenantApplicationResource extends Resource
 
     protected static ?int $navigationSort = 2;
 
+    protected static bool $isScopedToTenant = true;
+
     #[\Override]
     public static function form(Schema $schema): Schema
     {
@@ -54,7 +57,10 @@ class TenantApplicationResource extends Resource
                         Select::make('tenant_id')
                             ->label('Organization')
                             ->relationship('tenant', 'name')
-                            ->required()
+                            ->default(fn (): mixed => Filament::getTenant()?->getKey())
+                            ->disabled(fn (): bool => Filament::getTenant() !== null)
+                            ->hidden(fn (): bool => Filament::getTenant() !== null)
+                            ->dehydrated()
                             ->searchable()
                             ->preload(),
 

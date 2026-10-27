@@ -33,6 +33,8 @@ class SessionResource extends Resource
 
     protected static ?int $navigationSort = 5;
 
+    protected static bool $isScopedToTenant = false;
+
     #[\Override]
     public static function canCreate(): bool
     {

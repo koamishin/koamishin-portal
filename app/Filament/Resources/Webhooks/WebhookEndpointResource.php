@@ -44,6 +44,8 @@ class WebhookEndpointResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
+    protected static bool $isScopedToTenant = false;
+
     #[\Override]
     public static function form(Schema $schema): Schema
     {

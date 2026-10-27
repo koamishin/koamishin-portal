@@ -40,6 +40,8 @@ class TenantResource extends Resource
 
     protected static ?int $navigationSort = 1;
 
+    protected static bool $isScopedToTenant = false;
+
     #[\Override]
     public static function form(Schema $schema): Schema
     {

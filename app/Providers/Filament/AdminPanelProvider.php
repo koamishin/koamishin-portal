@@ -4,10 +4,13 @@ namespace App\Providers\Filament;
 
 use AlizHarb\ActivityLog\ActivityLogPlugin;
 use App\Filament\Pages\Auth\EditProfile;
+use App\Filament\Pages\Tenancy\EditTenantProfile;
+use App\Filament\Pages\Tenancy\RegisterTenant;
 use App\Filament\Widgets\AuthMethodsChartWidget;
 use App\Filament\Widgets\AuthStatsOverviewWidget;
 use App\Filament\Widgets\RecentUsersWidget;
 use App\Filament\Widgets\UserSignupsChartWidget;
+use App\Models\Tenant;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
@@ -61,6 +64,9 @@ class AdminPanelProvider extends PanelProvider
                     ->recoverable(),
                 EmailAuthentication::make(),
             ])
+            ->tenant(Tenant::class, slugAttribute: 'slug')
+            ->tenantRegistration(RegisterTenant::class)
+            ->tenantProfile(EditTenantProfile::class)
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\Filament\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\Filament\Pages')
             ->discoverClusters(in: app_path('Filament/Clusters'), for: 'App\Filament\Clusters')
