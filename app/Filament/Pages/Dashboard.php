@@ -221,7 +221,7 @@ class Dashboard extends BaseDashboard
     {
         $tenant = $this->getActiveTenant();
 
-        if (! $tenant) {
+        if (!$tenant instanceof \App\Models\Tenant) {
             return collect();
         }
 
@@ -241,7 +241,7 @@ class Dashboard extends BaseDashboard
         $activeSessions = DB::table('sessions')->whereNotNull('user_id')->count();
 
         $tenant = $this->getActiveTenant();
-        $totalApps = $tenant ? $tenant->applications()->count() : 0;
+        $totalApps = $tenant instanceof \App\Models\Tenant ? $tenant->applications()->count() : 0;
 
         $deliveriesTotal = WebhookDelivery::query()->count();
         $deliveriesSuccess = WebhookDelivery::query()->where('status', 'delivered')->count();
