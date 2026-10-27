@@ -184,32 +184,104 @@ class UserResource extends Resource
                             ->dateTime()
                             ->placeholder('Unverified')
                             ->badge()
-                            ->color(fn ($state): string => $state ? 'success' : 'danger'),
+                            ->color(fn ($state): string => $state ? 'success' : 'danger')
+                            ->suffixAction(
+                                Action::make('toggleEmailVerified')
+                                    ->label(fn (User $record): string => $record->email_verified_at ? 'Mark Unverified' : 'Mark Verified')
+                                    ->icon(fn (User $record): string => $record->email_verified_at ? 'heroicon-o-x-mark' : 'heroicon-o-check')
+                                    ->color(fn (User $record): string => $record->email_verified_at ? 'danger' : 'success')
+                                    ->action(function (User $record): void {
+                                        $record->forceFill([
+                                            'email_verified_at' => $record->email_verified_at ? null : now(),
+                                        ])->save();
+
+                                        Notification::make()
+                                            ->title($record->email_verified_at ? 'Email Marked Verified' : 'Email Marked Unverified')
+                                            ->success()
+                                            ->send();
+                                    })
+                            ),
+
+                        TextEntry::make('phone_verified_at')
+                            ->label('Phone Verified')
+                            ->dateTime()
+                            ->placeholder('Unverified')
+                            ->badge()
+                            ->color(fn ($state): string => $state ? 'success' : 'warning')
+                            ->suffixAction(
+                                Action::make('togglePhoneVerified')
+                                    ->label(fn (User $record): string => $record->hasVerifiedPhone() ? 'Unverify' : 'Verify')
+                                    ->icon(fn (User $record): string => $record->hasVerifiedPhone() ? 'heroicon-o-x-mark' : 'heroicon-o-check')
+                                    ->color(fn (User $record): string => $record->hasVerifiedPhone() ? 'danger' : 'success')
+                                    ->action(function (User $record): void {
+                                        $record->forceFill([
+                                            'phone_verified_at' => $record->hasVerifiedPhone() ? null : now(),
+                                        ])->save();
+
+                                        Notification::make()
+                                            ->title($record->hasVerifiedPhone() ? 'Phone Verified' : 'Phone Unverified')
+                                            ->success()
+                                            ->send();
+                                    })
+                            ),
+
                         TextEntry::make('password')
                             ->label('Password Authenticator')
                             ->state(fn (User $record): string => filled($record->password) ? 'Configured' : 'Passwordless')
                             ->badge()
                             ->color(fn (string $state): string => $state === 'Configured' ? 'success' : 'info'),
-                        TextEntry::make('app_authentication_secret')
-                            ->label('App MFA (TOTP)')
-                            ->formatStateUsing(fn ($state): string => filled($state) ? 'Enabled' : 'Disabled')
+
+                        TextEntry::make('mfa_status')
+                            ->label('Two-Factor / MFA')
+                            ->state(fn (User $record): string => $record->hasMfa() ? 'Enabled' : 'Disabled')
                             ->badge()
-                            ->color(fn ($state): string => filled($state) ? 'success' : 'warning'),
-                        TextEntry::make('has_email_authentication')
-                            ->label('Email MFA (OTP)')
-                            ->formatStateUsing(fn (bool $state): string => $state ? 'Enabled' : 'Disabled')
-                            ->badge()
-                            ->color(fn (bool $state): string => $state ? 'success' : 'warning'),
+                            ->color(fn (User $record): string => $record->hasMfa() ? 'success' : 'warning')
+                            ->suffixAction(
+                                Action::make('toggleMfaStatus')
+                                    ->label(fn (User $record): string => $record->hasMfa() ? 'Disable' : 'Enable Email 2FA')
+                                    ->icon(fn (User $record): string => $record->hasMfa() ? 'heroicon-o-shield-exclamation' : 'heroicon-o-shield-check')
+                                    ->color(fn (User $record): string => $record->hasMfa() ? 'warning' : 'success')
+                                    ->requiresConfirmation()
+                                    ->action(function (User $record): void {
+                                        if ($record->hasMfa()) {
+                                            $record->update([
+                                                'two_factor_secret' => null,
+                                                'two_factor_recovery_codes' => null,
+                                                'two_factor_confirmed_at' => null,
+                                                'app_authentication_secret' => null,
+                                                'app_authentication_recovery_codes' => null,
+                                                'has_email_authentication' => false,
+                                            ]);
+                                            Notification::make()->title('2FA Disabled')->warning()->send();
+                                        } else {
+                                            $record->update(['has_email_authentication' => true]);
+                                            Notification::make()->title('Email 2FA Enabled')->success()->send();
+                                        }
+                                    })
+                            ),
+
                         TextEntry::make('passkeys_count')
                             ->label('Passkeys Registered')
                             ->state(fn (User $record): int => $record->passkeys()->count())
                             ->badge()
                             ->color(fn (int $state): string => $state > 0 ? 'success' : 'gray'),
+
                         TextEntry::make('active_sessions_count')
                             ->label('Active Browser Sessions')
                             ->state(fn (User $record): int => DB::table('sessions')->where('user_id', $record->id)->count())
                             ->badge()
-                            ->color(fn (int $state): string => $state > 0 ? 'info' : 'gray'),
+                            ->color(fn (int $state): string => $state > 0 ? 'info' : 'gray')
+                            ->suffixAction(
+                                Action::make('terminateSessions')
+                                    ->label('Revoke All')
+                                    ->icon('heroicon-o-arrow-left-on-rectangle')
+                                    ->color('danger')
+                                    ->requiresConfirmation()
+                                    ->action(function (User $record): void {
+                                        $record->revokeAllSessions();
+                                        Notification::make()->title('Sessions Revoked')->warning()->send();
+                                    })
+                            ),
                     ])->columns(3),
 
                 Section::make('Connected Social Accounts')
