@@ -9,14 +9,14 @@ The Portal is a Laravel application. It renders account pages with Vue and Inert
 
 ## Main components
 
-| Component | Responsibility |
-| --- | --- |
-| Fortify and Socialite | Account authentication and configured social sign-in providers. |
-| Passport | OAuth authorization, client credentials, and access-token authentication for protected API routes. |
-| Filament | Administration of users, organizations, applications, OAuth clients, and webhook endpoints. |
-| Database and storage | Users, organization memberships, application records, settings, webhook deliveries, and uploaded files. |
-| Queue worker | Processes queued work, including user webhook delivery. |
-| Astro | Builds the static landing and documentation from selected repository files. |
+| Component             | Responsibility                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| Fortify and Socialite | Account authentication and configured social sign-in providers.                                         |
+| Passport              | OAuth authorization, client credentials, and access-token authentication for protected API routes.      |
+| Filament              | Administration of users, organizations, applications, OAuth clients, and webhook endpoints.             |
+| Database and storage  | Users, organization memberships, application records, settings, webhook deliveries, and uploaded files. |
+| Queue worker          | Processes queued work, including user webhook delivery.                                                 |
+| Astro                 | Builds the static landing and documentation from selected repository files.                             |
 
 Spatie packages provide roles, permissions, settings, and activity logging. Wayfinder generates TypeScript route helpers during frontend builds. The Blog module is enabled in `modules_statuses.json`.
 

@@ -89,9 +89,9 @@ Do **not** use `composer run setup` for a production installation. It regenerate
 3. Confirm that `storage/oauth-private.key` and `storage/oauth-public.key` both exist, that the application can read them, and that the private key is not publicly accessible. On a fresh install the wizard generates them when the public key is absent. If only one key is present on an existing installation, restore the pair before opening the wizard: it invokes `passport:keys --force` when the public key is missing and can overwrite the private key.
 4. Start a supervised queue worker with the same environment and code as the application. For example, run the following command under your process manager and configure it to restart after exit:
 
-   ```bash
-   php artisan queue:work --tries=3 --timeout=60 --no-interaction
-   ```
+    ```bash
+    php artisan queue:work --tries=3 --timeout=60 --no-interaction
+    ```
 
 5. Confirm the `/up` endpoint responds, sign in to the admin panel, and test email delivery and the relevant authentication flow. `/up` checks that Laravel can respond; it does not replace checks for the database, queue, mail, or connected applications. Remove the temporary access restriction only when your validation is complete.
 
@@ -107,13 +107,13 @@ If your deployment uses scheduled tasks, run `php artisan schedule:run --no-inte
 2. Deploy the new code, locked Composer dependencies, and matching built assets. Preserve the existing environment file and persistent storage; do not regenerate keys or run the default seeder.
 3. Apply migrations and refresh caches:
 
-   ```bash
-   php artisan migrate --force --no-interaction
-   php artisan module:migrate --all --force --no-interaction
-   php artisan optimize:clear --no-interaction
-   php artisan optimize --no-interaction
-   php artisan queue:restart --no-interaction
-   ```
+    ```bash
+    php artisan migrate --force --no-interaction
+    php artisan module:migrate --all --force --no-interaction
+    php artisan optimize:clear --no-interaction
+    php artisan optimize --no-interaction
+    php artisan queue:restart --no-interaction
+    ```
 
 4. Restart or reload long-running application processes as appropriate for your host. If using Octane, reload its workers after deploying code and configuration. Ensure the process manager restarts the queue workers after `queue:restart`.
 5. Check `/up`, sign in, and verify the affected integration and queue jobs. Keep the database and storage backups needed by your rollback plan.

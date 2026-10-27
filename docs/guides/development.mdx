@@ -12,23 +12,23 @@ Complete [installation](../getting-started/installation.mdx), then run `composer
 1. Find the relevant code using the [directory guide](directory-structure.mdx) and follow nearby conventions.
 2. Update the behavior and any relevant tests. Run the narrowest affected tests first, for example:
 
-   ```bash
-   php artisan test --compact tests/Feature/Setup/SetupTest.php
-   ```
+    ```bash
+    php artisan test --compact tests/Feature/Setup/SetupTest.php
+    ```
 
 3. Run the checks appropriate to your change. The full test suite is `php artisan test --compact`.
 4. For frontend changes, use the running Vite server or run `npm run build` to regenerate route helpers and assets.
 
 ## Available checks
 
-| Command | Purpose |
-| --- | --- |
-| `composer test:lint` | Check PHP formatting with Pint. |
-| `composer lint` | Apply PHP formatting with Pint. |
-| `composer phpstan` | Run PHP static analysis. |
-| `composer rector` | Preview Rector changes without applying them. |
-| `composer rector:fix` | Apply Rector changes. |
-| `npm run check` | Check the frontend with Vite Plus. |
-| `npm run types:check` | Check Vue and TypeScript types. |
+| Command               | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| `composer test:lint`  | Check PHP formatting with Pint.               |
+| `composer lint`       | Apply PHP formatting with Pint.               |
+| `composer phpstan`    | Run PHP static analysis.                      |
+| `composer rector`     | Preview Rector changes without applying them. |
+| `composer rector:fix` | Apply Rector changes.                         |
+| `npm run check`       | Check the frontend with Vite Plus.            |
+| `npm run types:check` | Check Vue and TypeScript types.               |
 
 The root [contribution guide](../../CONTRIBUTING.md) describes the complete set of checks and project conventions. For documentation changes, the [Astro guide](landing.mdx) explains how to build and review the published site.
