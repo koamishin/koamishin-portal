@@ -1,10 +1,18 @@
 ---
-title: Workflows
-description: Development and first-run workflows.
+title: Common workflows
+description: Find the steps for local setup, integration, and deployment.
 ---
 
-# Workflows
+# Common workflows
 
-For local development, `composer run dev` starts the application server, queue listener, log viewer and Vite. A fresh, migrated and unseeded instance redirects to `/setup` until a `super_admin` exists. The wizard creates the initial administrator and, if the public key is absent, Passport keys. Fortify's configured home path is `/dashboard`; protected routes require authentication and, where specified, email verification.
+## Start a new local instance
 
-See [installation](../getting-started/installation.mdx) for the setup sequence and seeder warning, and [deployment](ci-cd.mdx) for production operations.
+Follow [installation](../getting-started/installation.mdx) to install dependencies, configure a database, run migrations, and create the initial administrator. Then start the application and its supporting processes as described in [local development](../getting-started/local-development.mdx). A fresh migrated instance redirects to `/setup` until a `super_admin` exists.
+
+## Connect an application
+
+Create an organization and application in the admin panel, then inspect its OAuth client and registered callbacks. Choose a client appropriate for the consuming application and validate the complete authorization flow. The [integration guide](core-concepts.mdx) explains the current provisioning, environment, scope, and isolation limits. Use the [metadata guide](user-metadata.mdx) if the application needs extra user values.
+
+## Release an update
+
+Back up the database, uploaded files, and required keys; build the matching application assets; apply and validate migrations; refresh caches; and restart long-running processes. The [deployment guide](ci-cd.mdx) provides the full sequence and operational considerations. Build and deploy the [Astro site](landing.mdx) separately.

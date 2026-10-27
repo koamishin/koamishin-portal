@@ -1,33 +1,60 @@
 ---
 title: Tenancy and OAuth integration
-description: Tenant records, OAuth endpoints, and integration boundaries.
+description: Work with organization records, application clients, and user webhooks.
 ---
 
 # Tenancy and OAuth integration
 
-## Tenant records
+This guide explains how the Portal stores organizations and applications, how clients use Passport, and what to verify before integrating another application. First follow [installation](../getting-started/installation.mdx) to create an organization and application.
 
-Tenants have a name, slug, optional domain and logo, active flag, associated users and applications. Memberships store a role string. Administrators can manage these records in Filament. They are organizational records: the repository does not implement automatic tenant discovery, tenant-specific database switching, request scoping or enforced tenant isolation. `config/multitenancy.php` is not evidence that these are active; the referenced multitenancy package is not an installed dependency. Do not rely on tenant records as a security boundary without implementing and testing enforcement.
+## Organizations and memberships
 
-## OAuth clients
+An organization is stored as a `Tenant` with a name, slug, optional domain and active flag. Users can be assigned to organizations with an owner, admin, or member role. In the admin panel, use **Organizations (Tenants)** to manage organizations and a user's **Assigned Organizations** section to manage memberships.
 
-Passport provides the authorization server. The admin interface can create OAuth clients and associate applications with tenants. Creating a tenant application without an existing client creates a confidential authorization-code client with refresh-token support and registered redirect URIs. The generated secret is flashed in the creation flow, but no display consumer was found; verify the provisioning flow before relying on it. Editing a tenant application's redirect URI list does not automatically synchronize the Passport client. Review both records and update the client appropriately.
+These associations are organizational records, not a complete tenant security boundary. The repository does not provide automatic tenant discovery, database switching, or enforced tenant isolation for all requests. A domain saved on a tenant does not configure DNS or TLS. Evaluate and implement the necessary authorization and data scoping before allowing mutually untrusted tenants to use the same instance.
 
-The JavaScript client exchanges codes without a client secret, so it cannot use these newly generated confidential tenant-application clients as-is. For a public client, inspect `php artisan passport:client --help` and use Passport's `--public` option rather than assuming the administrative client creation form creates one. Register exact redirect URIs and use an authorization-code flow with PKCE where appropriate. A client must validate state and protect its tokens and any confidential client secret. Configure CORS for browser clients when cross-origin requests are required; no application-specific CORS policy is provided here.
+## Applications and environments
 
-Passport scopes are `openid`, `profile`, `email` and `roles`; the defaults are `openid`, `profile` and `email`. Access tokens are configured for 15 days, refresh tokens for 30 days, and personal access tokens for six months. These are application settings in `AppServiceProvider`, not a guarantee of immediate revocation on every client.
+Under an organization, an application record stores a framework, environment, callback URLs and an associated Passport client. Its detail page offers environment and code snippets for the selected framework. Treat these snippets as starting points: published packages can differ from the client source in this checkout, and end-to-end compatibility with your Portal must be verified.
 
-| Endpoint                            | Purpose                                        |
-| ----------------------------------- | ---------------------------------------------- |
-| `/.well-known/openid-configuration` | Discovery metadata                             |
-| `/oauth/jwks`                       | Public signing key, read from Passport storage |
-| `/api/oauth/userinfo`               | Bearer-token protected user information        |
-| `/api/user`                         | Bearer-token protected user model response     |
+Creating an application provisions confidential authorization-code clients. The initial client is associated with the application; a separate production client is created with an empty redirect URI list. The initial secret is flashed to the session but the repository has no display consumer, and the production secret is not displayed. Confirm a secure, working credential-provisioning process before relying on these clients.
 
-The userinfo response currently includes identity, email, roles and permissions regardless of requested scopes and is not tenant-scoped. Discovery advertises OpenID Connect metadata, but this repository does not implement ID-token issuance or nonce handling; do not assume OIDC conformance or use it as an OIDC identity provider without further implementation and validation.
+The development and production labels and stored environment settings are not a guarantee of isolated users or enforced sign-up, email-verification, MFA, or session policies. Switching environment updates the application's environment field; it does not by itself synchronize the application's client ID and callback URLs with the chosen environment. Editing the application's callback list also does not update the Passport client. Check the actual client and registered callback URIs before each integration, and validate the full flow in a safe environment.
 
-The `packages/koamishin-auth-js` and `packages/koamishin-auth-php` directories contain client source. Publication to package registries and end-to-end compatibility have not been established by this repository. Review and test them before use; the JavaScript client uses browser storage and its logout clears local tokens. Neither client should be assumed to provide centralized logout.
+## Choose and configure an OAuth client
+
+Register the exact callback URI used by the consuming application. Confidential server-side clients must keep their client secret on the server; never put it in browser code. For browser or mobile clients that cannot keep a secret, use a public authorization-code client with PKCE. The application creation flow above creates confidential clients, so the bundled browser client cannot use those generated clients as-is. The OAuth Applications admin form also generates a secret when left blank, despite its helper text.
+
+To create a separate public Passport client, inspect the installed command and use the actual callback URL for your application:
+
+```bash
+php artisan passport:client --help --no-interaction
+php artisan passport:client --public --name="Example browser app" --redirect_uri="http://localhost:5173/auth/callback" --no-interaction
+```
+
+This command creates a Passport client; it does not associate it with a tenant application or implement tenant scoping. For production, register an HTTPS callback controlled by the consuming application. Check the output and test the complete flow, including denied authorization, invalid state, mismatched callbacks, token expiry and logout behavior.
+
+The included [JavaScript](../../packages/koamishin-auth-js/README.md) and [PHP](../../packages/koamishin-auth-php/README.md) clients describe their methods and storage behavior. In particular, their logout methods clear local state; do not assume they revoke tokens or end the Portal session. Configure any required cross-origin policy for browser calls; this repository does not provide an application-specific CORS policy.
+
+## Endpoints and scopes
+
+Passport defines `openid`, `profile`, `email`, and `roles` scopes; its defaults are `openid`, `profile`, and `email`. Access tokens are configured for 15 days, refresh tokens for 30 days, and personal access tokens for six months in `AppServiceProvider`.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/oauth/authorize` | Begin the authorization-code flow. |
+| `/oauth/token` | Exchange an authorization code or refresh token. |
+| `/api/oauth/userinfo` | Return information about the user represented by a valid bearer token. |
+| `/api/user` | Return the authenticated user model for a valid bearer token. |
+| `/.well-known/openid-configuration` | Return the Portal's discovery metadata. |
+| `/oauth/jwks` | Return the public signing key from Passport storage. |
+
+Both user endpoints expose user metadata. Userinfo also returns roles and permissions regardless of requested scopes, and it is not tenant-scoped. Do not use scopes or tenant membership as a reason to place confidential values in metadata; see [user metadata](user-metadata.mdx).
+
+Discovery advertises OpenID Connect metadata, but the repository does not implement ID-token issuance or OIDC nonce handling. Do not assume OIDC conformance or configure an OIDC-only client against it without implementing and validating the missing behavior.
 
 ## Webhooks
 
-The user observer dispatches `user.created`, `user.updated` and `user.deleted` events to active webhook endpoints subscribed to that event or `*`. Delivery is queued, so a functioning queue worker is required. The job sends JSON with `svix-id`, `svix-timestamp` and `svix-signature` headers, signing the message ID, timestamp and raw payload with HMAC-SHA256 using the endpoint secret. It records deliveries and attempts retries. Review `app/Jobs/DispatchWebhookJob.php` and validate signature interoperability and replay protection in the receiving application before relying on an integration. Payloads can contain personal data, roles and permissions; secure endpoints and limit access to delivery records.
+To receive user events, create an active **Webhook Endpoint** in the admin panel, enter the receiving URL and signing secret, and select the events to subscribe to. The dispatcher sends `user.created`, `user.updated`, and `user.deleted` to all active endpoints subscribed to each event or `*`. Subscriptions are not tenant-scoped. User-created and user-updated payloads include profile data, metadata, roles, and permissions; the deleted payload contains the user ID and email.
+
+Delivery runs on the queue, so start a worker and monitor delivery records and failed jobs. The request includes `svix-id`, `svix-timestamp`, and `svix-signature` headers. The signature is HMAC-SHA256 over the message ID, timestamp and raw body; verify it and implement replay protection at the receiver. The job records deliveries and attempts retries. Test signature interoperability and error handling with your receiver before relying on an integration. Protect the endpoint secret and restrict access to delivery records.

@@ -1,12 +1,31 @@
 ---
 title: Architecture
-description: Application structure and boundaries.
+description: The Portal's components, data flows, and boundaries.
 ---
 
 # Architecture
 
-Laravel serves Vue pages through Inertia, with Filament at `/admin`. Fortify handles account authentication, Passport provides OAuth authorization and API authentication, and Socialite integrates configured social providers. Spatie packages provide roles, permissions, settings and activity logging. Wayfinder generates TypeScript route helpers during frontend builds. The Blog module is enabled in `modules_statuses.json`.
+The Portal is a Laravel application. It renders account pages with Vue and Inertia and provides an administration panel with Filament at `/admin`. The separately built Astro site contains the landing page and this documentation; it does not host the Laravel application.
 
-Tenant and membership records do not provide automatic request isolation or database switching. Discovery metadata does not mean the implementation issues OpenID Connect ID tokens or handles OIDC nonces. Userinfo is not tenant-scoped and currently returns roles and permissions without filtering by OAuth scope. See [tenancy and OAuth](guides/core-concepts.mdx) before using these capabilities as security boundaries.
+## Main components
 
-The root `composer.json`, `package.json`, lockfiles, `routes/`, `config/`, `app/`, `Modules/` and `resources/` define the actual runtime behavior. Local client source exists under `packages/`; registry publication and compatibility are not established here.
+| Component | Responsibility |
+| --- | --- |
+| Fortify and Socialite | Account authentication and configured social sign-in providers. |
+| Passport | OAuth authorization, client credentials, and access-token authentication for protected API routes. |
+| Filament | Administration of users, organizations, applications, OAuth clients, and webhook endpoints. |
+| Database and storage | Users, organization memberships, application records, settings, webhook deliveries, and uploaded files. |
+| Queue worker | Processes queued work, including user webhook delivery. |
+| Astro | Builds the static landing and documentation from selected repository files. |
+
+Spatie packages provide roles, permissions, settings, and activity logging. Wayfinder generates TypeScript route helpers during frontend builds. The Blog module is enabled in `modules_statuses.json`.
+
+## How an integration uses the Portal
+
+An application sends a user through Passport's authorization-code flow. After the user authorizes the client, the application exchanges the code for a user access token and can call `/api/oauth/userinfo`. User creation, update, and deletion can also dispatch queued events to subscribed webhook endpoints. See [tenancy and OAuth integration](guides/core-concepts.mdx) for the endpoints, client requirements, and caveats.
+
+## Boundaries to account for
+
+Tenant and membership records are organizational records; they do not automatically isolate requests or switch databases. The userinfo response is not tenant-scoped and currently returns user metadata, roles, and permissions without filtering those fields by OAuth scope. The discovery document does not establish OpenID Connect conformance: this repository does not implement ID-token issuance or nonce handling.
+
+The application source and lockfiles determine runtime behavior. Start with `routes/`, `config/`, `app/`, `resources/`, and `Modules/`; the local client source is under `packages/`. See [directory structure](guides/directory-structure.mdx) and [security](guides/security.mdx) for further guidance.

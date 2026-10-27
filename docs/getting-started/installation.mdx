@@ -1,30 +1,83 @@
 ---
-title: Installation
-description: Install a fresh local Koamishin Portal instance.
+title: Install locally
+description: Install Koamishin Portal, create the first administrator, and register an application.
 ---
 
-# Installation
+# Install locally
 
-Use PHP 8.5 with the extensions required by Composer and Laravel, Composer 2, Node.js 22 and npm. PHP `^8.3` is declared by the project; the CI test matrix uses 8.4 and 8.5. SQLite and its PHP PDO driver are sufficient for the default local configuration. For another database, configure and create it before migrating.
+This guide starts a new, unseeded instance on your computer using SQLite. You will create an administrator, an organization, and an application record. For a public server, use [deployment and operations](../guides/ci-cd.mdx) instead.
 
-From a fresh checkout, run:
+## Prerequisites
+
+- PHP 8.5 with the extensions required by the locked Composer dependencies, including PDO SQLite for the SQLite setup below. Composer declares PHP `^8.3`; the project's CI tests PHP 8.4 and 8.5.
+- Composer 2, Git, and npm.
+- Node.js 22.18 or later within the 22.x series, or Node.js 24.11 or later. The locked Vite Plus version also supports Node.js 20.19 or later within 20.x.
+
+Check your tools with `php -v`, `composer --version`, `node --version`, and `npm --version`. If Composer reports a missing extension, install or enable it for the PHP executable you use on the command line.
+
+## 1. Get the source and install PHP dependencies
 
 ```bash
+git clone https://github.com/koamishin/koamishin-portal.git
+cd koamishin-portal
 composer install
-test -f .env || cp .env.example .env
-php artisan key:generate
-mkdir -p database
+```
+
+Run the remaining commands from the repository root. `composer install` uses the committed lockfile and installs the packages used for local development.
+
+## 2. Configure the new instance
+
+For a fresh checkout, create `.env` from the example:
+
+```bash
+cp .env.example .env
+```
+
+Set `APP_URL=http://localhost:8000` in `.env` if you plan to use the default development server. Leave `DB_CONNECTION=sqlite` for this walkthrough. The URL matters for generated links and passkey origins. Configure mail before trying email verification or password resets; the example SMTP host expects a local mail service. See [configuration](configuration.mdx) for other options.
+
+Create the database file, application key, schema, Passport keys, and public storage link:
+
+```bash
 touch database/database.sqlite
+php artisan key:generate --no-interaction
 php artisan migrate --no-interaction
-php artisan module:migrate --force --no-interaction
-php artisan storage:link
+php artisan module:migrate --all --force --no-interaction
+php artisan passport:keys --no-interaction
+php artisan storage:link --no-interaction
+```
+
+The module migration command applies migrations for enabled modules; Blog is enabled in the committed module status file. `storage:link` makes files stored on Laravel's public disk accessible through `public/storage`.
+
+These key-generation commands are for a **new** installation. Do not overwrite an existing `.env`, regenerate `APP_KEY`, or replace Passport keys on an established instance without a recovery and rotation plan. The wizard generates Passport keys if the public key is missing; in that case it uses `--force`, which can replace an existing private key. Keep both keys together.
+
+## 3. Install frontend dependencies and start the portal
+
+```bash
 npm ci
 npm run build
 composer run dev
 ```
 
-If Composer's installation script already created `.env`, keep it instead of overwriting it. Configure the database in `.env` before migrations. For the default local server, set `APP_URL=http://localhost:8000` so passkey origins and generated callback URLs use the right port. The module command migrates enabled modules; `modules_statuses.json` enables Blog. `storage:link` exposes files on Laravel's public disk. `composer run dev` starts the Laravel server, a queue listener, Pail and Vite; normally the server listens on `http://localhost:8000`.
+Leave this terminal running. `composer run dev` starts the Laravel development server, queue listener, Pail log viewer, and Vite. Open `http://localhost:8000/setup` in your browser. Stop the processes with `Ctrl+C` when finished.
 
-Visit `/setup` on the private local instance to create the initial `super_admin` and sign in to `/admin`. The setup handler runs `passport:keys --force` if the public key is absent; this can overwrite an existing private key. Restore or back up both keys as a pair before using the wizard on an existing installation. Configure mail before testing verification or password reset messages. The first-run check depends on whether a user has the `super_admin` role, so do not expose an uninitialized instance to untrusted users.
+## 4. Create the first administrator
 
-**Do not run `composer run setup` on an existing instance.** It generates an application key, migrates and seeds the database, builds assets and generates Shield permissions. The default seeder creates `admin@admin.com` and `user@user.com` with password `password`; the former is a super administrator. Seeding bypasses the setup wizard. Never expose those accounts: secure or remove them immediately if the seeder has been used. Keep a secured super administrator and restrict access while making changes: removing the last one reopens `/setup`. The seeder also assigns roles to preexisting users with those email addresses when rerun. Changing an existing `APP_KEY` can invalidate encrypted data and sessions.
+On the setup page, enter the instance name, administrator name, email address, and a password with its confirmation, then select **Initialize Portal & Launch**. The wizard creates a verified user with the `super_admin` role, signs them in, and redirects to `/admin`. Choose a strong password and keep the instance private until this step is complete.
+
+The setup page is available whenever no user has the `super_admin` role. Keep a secured super administrator: removing the last one makes setup available again. The wizard redirects away once such a user exists.
+
+Do not run `composer run setup` or the default seeder for this walkthrough. The seeder creates `admin@admin.com` and `user@user.com` with the known password `password`; rerunning it can assign roles to existing users with those email addresses. If it has been used, secure or remove those accounts while keeping a secured super administrator.
+
+## 5. Create an organization and application
+
+1. From the administration panel, open **Register Organization**. If needed, visit `/admin/new`. Enter an organization name and unique slug; the custom domain is optional. The creator is attached to the organization as an owner.
+2. In that organization, open **Applications** and choose **New Application**. Enter a name, choose **Development**, select the target framework, and enter the exact callback URL your client will use. A suggested localhost callback is filled in for supported frameworks; replace it if your client uses a different URL.
+3. Save the application and review its details. The application page shows its client ID, environment values, and framework-specific example snippets. The top bar lets you switch organizations, applications, and the application environment.
+
+An application record is not yet a complete client integration. The generated clients are confidential, and the current flow does not expose the generated secret reliably. The browser SDK cannot exchange codes with those confidential clients as-is. Callback settings and environment labels also do not establish tenant or environment isolation. Read [tenancy and OAuth integration](../guides/core-concepts.mdx) before connecting a client or treating the setup as a security boundary.
+
+## Next steps
+
+- Use [local development](local-development.mdx) for day-to-day commands and troubleshooting.
+- Review [configuration](configuration.mdx) to configure the database, mail, and optional social login.
+- Read [deployment and operations](../guides/ci-cd.mdx) before hosting a shared instance.

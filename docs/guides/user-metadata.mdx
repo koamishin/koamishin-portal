@@ -1,0 +1,96 @@
+---
+title: User metadata
+description: Add and read custom profile values, and understand where they are shared.
+---
+
+# User metadata
+
+User metadata lets you attach extra key-value data to a Portal user without adding a column for every field. For example, an application could use `preferred_language` or `time_zone` when displaying its interface. Metadata is stored in the nullable `users.metadata` JSON column and is cast to an array in the Portal's `User` model. Run the Portal's migrations before using it; no additional environment setting or field registration is required.
+
+The current implementation has **one metadata object per user**. It is shared across the user's tenants, applications, and environments. It does not implement Clerk's separate public, private, or unsafe metadata, per-key permissions, a metadata schema, or a metadata-specific write API. The admin editor and trusted code inside the Portal can update it; a connected application can read it through userinfo.
+
+## Decide what to store
+
+Choose stable, unique keys and agree on their meaning with every application that consumes them. Use small, non-secret values such as a language preference. The admin editor provides text inputs for a flat list of keys and values. Text entered there is stored as text; entering `true`, `42`, or JSON text does not turn it into a boolean, number, or nested object. Keep integrations consistent about expected types.
+
+Metadata is not private to one application. Both `/api/oauth/userinfo` and `/api/user` expose it to a client with a valid user bearer token, without filtering the metadata by scope, tenant, or application. Subscribed active webhook endpoints can also receive it, and user activity and webhook delivery records may retain copies. The column is not encrypted by an application-level encrypted cast. Do not put passwords, tokens, API keys, or other sensitive or access-control data here. Review who can access the database, activity logs, delivery records, and every connected client or webhook endpoint before adding a field.
+
+## Add values in the admin panel
+
+An account must be able to access the Filament panel and have the applicable user-management permissions. The current panel access check requires the `super_admin` role.
+
+1. Sign in to the Portal and open the admin panel at `/admin`. Select an organization if prompted.
+2. Open **Users**, choose a user, and select **Edit**.
+3. Expand **Custom Metadata (Clerk Meta)**. In **User Metadata**, add a row with attribute `preferred_language` and value `en`.
+4. Add another row with attribute `time_zone` and value `Asia/Manila`, then save the user.
+5. Open the user's details and expand **Custom Metadata** to check the saved values. To change or remove a value, edit the user again and save the form.
+
+These values belong to the user record globally, even when the administrator is viewing a particular organization. The UI does not create separate metadata for that organization.
+
+## Read metadata from an application
+
+Complete the Portal's OAuth authorization-code flow for the user and obtain a valid user access token. Send the token to userinfo over HTTPS. Set `PORTAL_URL` to your Portal origin (for example, `https://auth.example.com`) and provide `ACCESS_TOKEN` through a secure mechanism; do not commit it or paste a real token into shared logs.
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --header 'Accept: application/json' \
+  --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+  "${PORTAL_URL}/api/oauth/userinfo"
+```
+
+The response includes other identity fields; this excerpt shows the metadata added above:
+
+```json
+{
+  "sub": "42",
+  "name": "Example User",
+  "metadata": {
+    "preferred_language": "en",
+    "time_zone": "Asia/Manila"
+  }
+}
+```
+
+`metadata` may be `null` when no value has been saved, and a particular key may be absent. Check the shape and value type before using it. For example, with the parsed userinfo response in JavaScript:
+
+```js
+const metadata = userinfo.metadata;
+const language =
+    metadata && typeof metadata.preferred_language === 'string'
+        ? metadata.preferred_language
+        : 'en';
+```
+
+The local JavaScript client's `KoamishinUser` TypeScript interface does not currently declare `metadata`, and the PHP client's `KoamishinUser` object does not expose it. Read the raw userinfo response or extend and test your client before relying on a typed metadata property. See [tenancy and OAuth integration](core-concepts.mdx) for client provisioning and the current OAuth and isolation limitations.
+
+## Update metadata in Portal code
+
+Portal developers can update a user through the Eloquent model in a trusted, authorized operation. The following example preserves other existing top-level keys, changes one value, and saves the whole metadata column:
+
+```php
+use App\Models\User;
+
+// Authorize the operation and validate the value before this code runs.
+$user = User::query()->findOrFail($userId);
+$metadata = $user->metadata ?? [];
+$metadata['preferred_language'] = 'en';
+$user->metadata = $metadata;
+$user->save();
+```
+
+To remove a key, read the array in the same way, call `unset($metadata['preferred_language'])`, assign the array back, and save. Assigning an entirely new array replaces the existing metadata; it does not merge automatically. The standard `array` cast requires reassignment, so do not modify `$user->metadata['key']` directly. Concurrent read-modify-write operations can overwrite each other; coordinate writes or implement an appropriate concurrency strategy if multiple writers update the same user.
+
+Validate and authorize every write. The Portal does not impose an application-wide metadata schema, per-key size limit, or metadata-specific access policy. Database and request limits still apply. Saving a changed user model runs the registered observer; direct database and bulk query updates do not run individual model observers.
+
+## Receive changes through webhooks
+
+For a service that needs to react to updates, configure an active **Webhook Endpoint** in the admin panel and subscribe it to `user.updated` (and `user.created` if needed). The `data.metadata` field contains the user's metadata in those event payloads. The event is a user update, not a dedicated metadata-change event; compare the received value with your stored state if you need to detect a specific change. The `user.deleted` payload does not include metadata.
+
+Webhook delivery is queued and needs a running worker. Secure the receiving endpoint and verify the signature and timestamp before processing a payload. Subscriptions are not tenant- or application-scoped. See [webhooks](core-concepts.mdx#webhooks) for delivery and security details.
+
+## Troubleshooting
+
+- **The response is unauthorized:** Confirm that the token is a valid user access token and send it as a Bearer token to the correct Portal origin.
+- **`metadata` is `null` or a key is missing:** Save the value on the intended user and fetch userinfo again. Applications that cache claims need to refresh their copy.
+- **A webhook did not arrive:** Confirm the endpoint is active and subscribed to `user.updated`, the queue worker is running, and the delivery record shows a successful response.
+- **An application cannot access a metadata property on the supplied client type:** The bundled client types do not currently declare it. Use the raw userinfo response or extend and test the client.

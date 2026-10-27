@@ -1,10 +1,20 @@
 ---
-title: Reference
-description: Locate routes and integration details.
+title: API and route reference
+description: Locate the Portal's OAuth and application routes.
 ---
 
-# Reference
+# API and route reference
 
-Application routes are defined in `routes/web.php`, `routes/api.php` and `routes/settings.php`; packages also register routes. Run `php artisan route:list` to inspect the routes for your installed dependencies. The protected API endpoints use Passport's `auth:api` guard. See [tenancy and OAuth integration](../guides/core-concepts.mdx) for endpoint descriptions and limitations.
+Routes come from the application and its installed packages. From the Portal directory, list the routes for your checkout:
 
-For client-side route helpers, inspect generated Wayfinder imports and existing Vue pages. `npm run build` regenerates helpers before building assets.
+```bash
+php artisan route:list --no-interaction
+php artisan route:list --path=api --no-interaction
+php artisan route:list --path=oauth --no-interaction
+```
+
+The application defines `GET /api/user` and `GET /api/oauth/userinfo` with Passport's `auth:api` guard. Both require a valid user bearer token. Userinfo returns identity data including `sub`, `name`, `email`, `metadata`, roles, and permissions. See [user metadata](../guides/user-metadata.mdx) for an example request and response.
+
+The [integration guide](../guides/core-concepts.mdx) lists OAuth endpoints and explains the current client, scope, tenant-isolation, and OpenID Connect limitations. Route definitions are in `routes/web.php`, `routes/api.php`, and `routes/settings.php`; packages can register additional routes.
+
+For Vue pages, follow existing Wayfinder imports for generated route helpers. `npm run build` regenerates them before building the application assets.

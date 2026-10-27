@@ -1,6 +1,12 @@
 # Koamishin Auth PHP client
 
-This directory contains Laravel-oriented client source for the Portal's Passport authorization-code flow with PKCE. Registry publication and end-to-end compatibility are not established by the source in this checkout. Review and test it before deployment. The package's Composer manifest declares PHP 8.2–8.5 and Illuminate 10–13 version constraints; those constraints are not a guarantee that every combination has been tested.
+This directory contains Laravel-oriented client source for the Portal's Passport authorization-code flow with PKCE. The package is published as [koamishin/auth-php on Packagist](https://packagist.org/packages/koamishin/auth-php):
+
+```bash
+composer require koamishin/auth-php
+```
+
+The published package can differ from the source in this checkout. Review the version you install and test the complete integration before deployment. This checkout's Composer manifest declares PHP 8.2–8.5 and Illuminate 10–13 version constraints; those constraints are not a guarantee that every combination has been tested.
 
 `KoamishinAuth::getLoginUrl()` stores OAuth state and a PKCE verifier in the Laravel session and returns an authorization URL. `handleCallback($code, $state)` checks state, exchanges the code using the configured client secret, fetches `/api/oauth/userinfo`, and stores the user claims and access token in the session. `user()` and `check()` read the local session. `logout()` clears those local values; it does not revoke tokens or end the Portal session. Protect session storage and the client secret.
 

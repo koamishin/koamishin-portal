@@ -1,36 +1,52 @@
 ---
-title: Astro landing
-description: Develop, build, and deploy the separate Astro landing page.
+title: Deploy the landing and documentation
+description: Build and publish the static Astro landing and documentation site.
 ---
 
-# Astro landing
+# Deploy the landing and documentation
 
-The `landing/` directory is a separate static Astro site. It also publishes the repository's documentation at `/docs/`, using the files in `docs/` as its source. The development dependency [Laravel Astro Landing](https://github.com/lauroguedes/laravel-astro-landing) provides the Artisan commands used below. The Laravel application continues to serve its own `/` route; deploying the landing does not change it. The landing and the application can use separate domains, for example `www.example.com` and `auth.example.com`.
+The `landing/` directory contains a separate Astro site. It serves the landing page and renders selected repository documentation under `/docs/`. The Laravel application has its own `/` route, database, and deployment lifecycle; you can host it on `auth.example.com` and the static site on a different domain. See [deployment and operations](ci-cd.mdx) for the application.
 
-## Local development
+## Run the site locally
 
-Install the root Composer dependencies, including development dependencies, and the landing's locked npm dependencies. Use a Node version supported by `landing/package.json` and its lockfile.
+Use Node.js 22.12 or later. From the repository root, install the landing's locked dependencies and start its development server:
 
 ```bash
-composer install
 npm ci --prefix landing
 test -f landing/.env || cp landing/.env.example landing/.env
-php artisan landing:dev --no-interaction
+npm run dev --prefix landing
 ```
 
-The server prints its local address, normally `http://localhost:4321`. Run Laravel separately as described in [local development](../getting-started/local-development.mdx). Set `PUBLIC_APP_URL` in `landing/.env` to the Laravel application's origin, including its port. It defaults to `http://localhost:8000`; the sign-in links append `/login`. The landing's `.env` is separate from Laravel's `.env`.
+The server prints its address, normally `http://localhost:4321`. Set `PUBLIC_APP_URL` in `landing/.env` to the Laravel application's origin, including its port. Sign-in links append `/login`. The landing's `.env` is separate from Laravel's `.env` and contains only public build-time values.
 
-## Build and deploy
+Alternatively, with root Composer development dependencies installed, run `php artisan landing:dev --no-interaction`. These Artisan commands come from the [Laravel Astro Landing](https://github.com/lauroguedes/laravel-astro-landing) development dependency. Start Laravel separately as described in [local development](../getting-started/local-development.mdx).
 
-Build from a complete checkout: the landing reads selected files from `docs/`, the root contribution and project guidance, and the SDK packages. The explicit source list lives in `landing/src/lib/docs.mjs`; add new public documentation and linked files there before publishing them. The current renderer supports Markdown syntax in these `.mdx` files, including fenced code and tables, but does not execute MDX components or expressions. Set `PUBLIC_APP_URL` to the public HTTPS origin of your deployed Laravel application **at build time**. Astro embeds it into the static output; changing a server environment variable after the build does not update existing files. This value is public and must not contain a secret.
+## Build for static hosting
+
+Build from a complete checkout: in addition to `landing/`, the site reads selected files from `docs/`, the root project guides, and the SDK packages. Set `PUBLIC_APP_URL` to the public HTTPS origin of your deployed Laravel application. Astro embeds this value into the generated files, so changing a hosting environment variable requires a rebuild. Do not put a secret in it.
 
 ```bash
 npm ci --prefix landing
-PUBLIC_APP_URL=https://auth.example.com php artisan landing:build --no-interaction
+PUBLIC_APP_URL=https://auth.example.com npm run build --prefix landing
 ```
 
-Upload the contents of `landing/dist/` to a static hosting service configured to serve `index.html` for directories, including nested paths such as `/docs/guides/landing/`. Deploy the entire output so the documentation pages and their assets are available alongside the landing page. Check that `/docs/` and a nested guide load directly as well as through navigation. Configure the landing's domain and HTTPS with that provider. Set the actual application origin in the command above, rebuild for each environment, and check the deployed sign-in link before directing users to it. The example address is a placeholder. The current site uses root-relative links and is intended for hosting at the domain root. Hosting under a path requires updating those links and Astro's `base` before deployment.
+The generated site is in `landing/dist/`. Upload the **contents** of this directory to a static host configured to serve `index.html` in directories. Deploy all assets and pages together, then verify the landing page, `/docs/`, a nested guide loaded directly, and the sign-in link. Configure the host's domain and HTTPS separately. The static output does not need PHP.
 
-The package is a Composer development dependency, so `landing:build` is available where development dependencies are installed, such as a build machine or CI. Alternatively, build from the landing directory with `npm run build` after installing its dependencies and setting the same `PUBLIC_APP_URL`. The resulting static files do not need PHP. The package can generate provider-specific workflows with `php artisan landing:workflow --help`; review the generated workflow, include changes to the documentation source paths in its build triggers, and configure the provider's credentials before enabling it. No landing deployment workflow is configured by default in this repository.
+Outside GitHub Actions, the current Astro configuration builds for the domain root. It uses `/koamishin-portal` as its base whenever `GITHUB_ACTIONS` is set, so a custom domain or a different repository path needs corresponding changes to the Astro base and documentation link generation. The landing currently includes a root-relative hero logo; check and adjust that asset path when using a subpath. Test both page navigation and assets at the actual deployed path.
 
-Deploy and operate the Laravel application independently using [deployment and operations](ci-cd.mdx). Before production, address the documented authentication and container limitations there and in [tenancy and OAuth](core-concepts.mdx).
+If root Composer development dependencies are installed, `PUBLIC_APP_URL=https://auth.example.com php artisan landing:build --no-interaction` performs the build through the Laravel Astro Landing package. The package is a development dependency, so this Artisan command is not available after a `composer install --no-dev` deployment. The direct npm build above does not require the package.
+
+## Publish with the existing GitHub Pages workflow
+
+`.github/workflows/deploy-pages.yml` builds the site on relevant pushes to `main` and can also be run manually. For the current repository, it builds under `/koamishin-portal` and uploads `landing/dist/` as a GitHub Pages artifact. To use it:
+
+1. Configure the repository's Pages source as GitHub Actions and check that the workflow's permissions and environment are allowed by your organization.
+2. Add a public `PUBLIC_APP_URL` environment value to the workflow's **Build Astro site** step, pointing to your actual Laravel HTTPS origin. The committed workflow does not set it, so without this change its sign-in links point to `http://localhost:8000`.
+3. Review the configured Astro `site` and `base` for your repository and hosting URL. Resolve the root-relative logo mentioned above for a subpath deployment, and review workflow path filters when adding public source files.
+4. Run the workflow and check the published landing, documentation navigation, direct nested routes, assets, and sign-in link.
+
+The workflow publishes only the static landing and docs; it does not deploy or configure Laravel. For other hosts, use the static build and upload procedure above.
+
+## Update the documentation
+
+Edit the source files in `docs/`. New public pages and linked repository files must also be added to the explicit source or public-file list in `landing/src/lib/docs.mjs`; otherwise the build cannot publish or resolve them. The renderer accepts the current Markdown syntax in `.mdx` files, including fenced code and tables, but it does not execute MDX components or expressions. Rebuild and check changed pages and their links before publishing.

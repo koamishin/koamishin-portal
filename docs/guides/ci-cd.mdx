@@ -1,38 +1,129 @@
 ---
 title: Deployment and operations
-description: Production setup and current container limitations.
+description: Deploy the Laravel application, initialize an administrator, and operate subsequent releases.
 ---
 
 # Deployment and operations
 
-Plan a deployment around the actual environment and review it before exposing the application. Use HTTPS, a private database and cache, a reliable mail service, persistent writable `storage/` and `bootstrap/cache/`, and a unique stable `APP_KEY`. Point a web server at `public/`, or run the configured Octane server behind a correctly configured TLS proxy. Set the public `APP_URL`, `APP_ENV=production` and `APP_DEBUG=false`.
+This guide deploys the Laravel application to a server with PHP-FPM and a web server. You can use another host or Octane, but you must adapt and verify its process, storage, and proxy configuration. The [Astro landing and documentation](landing.mdx) are built and hosted separately.
 
-For a fresh installation, install locked PHP dependencies and build the frontend, configure production services, run the application's migrations and enabled module migrations, and create the `public/storage` link. Restrict network access while visiting `/setup` to create the initial super administrator. The wizard runs `passport:keys --force` when `storage/oauth-public.key` is absent, potentially overwriting an existing private key. Back up and restore the keys as a pair, and do not use the wizard on an existing installation with only one key present. Confirm that both key files are present and protected. Do not run the default seeder on an exposed production instance: it creates known-password accounts. See [installation](../getting-started/installation.mdx) for the seeder and `composer run setup` warnings.
+Review [tenancy and OAuth integration](core-concepts.mdx) before connecting real users: tenant records do not currently enforce isolation, and the advertised OpenID Connect endpoints do not implement the complete OIDC flow. Plan a staging deployment and validate the security and integration behavior needed by your applications before exposing the service.
 
-For a fresh deployment from the application root, after provisioning the database and configuring `.env`, a typical release sequence is:
+## 1. Prepare the host
+
+- Provision PHP 8.5, Composer 2, Node.js 22.18 or later in the Node 22 series, and npm. The root frontend build's Vite Plus dependency also supports Node 20.19+ and Node 24.11+, but not every intervening release. Install the PHP extensions required by the locked Composer dependencies and the driver for your database. The frontend build requires PHP because it generates Wayfinder routes.
+- Provision a database, a mail transport, and a queue backend. The default `.env.example` uses SQLite and database-backed queues, sessions, and cache; configure alternatives if required. Use private networking and credentials for shared services.
+- Create a DNS name and an HTTPS endpoint, for example `auth.example.com`. Configure the web server to serve only the Laravel `public/` directory, or put the app behind a correctly configured TLS-terminating proxy. Do not expose the project root, `.env`, `storage/`, or Passport private key.
+- Make `storage/` and `bootstrap/cache/` writable by the application process. Persist `storage/` across releases, including uploads and Passport keys. Protect it from public access except for the intended `public/storage` link. Share the same key material and compatible storage with all instances.
+
+The web server, worker, and deployment commands must use the same application configuration. Set up access restrictions so only an administrator can reach a new deployment until initialization is complete.
+
+## 2. Configure a fresh installation
+
+From a fresh checkout on the deployment host or build machine, install the production PHP dependencies and create an environment file if one does not already exist:
 
 ```bash
 composer install --no-dev --optimize-autoloader --no-interaction
+test -f .env || cp .env.example .env
+```
+
+Edit `.env` privately. The following illustrates the settings to review; replace every example with values for your host and provision the corresponding services first:
+
+```dotenv
+APP_NAME="Koamishin Portal"
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://auth.example.com
+
+DB_CONNECTION=pgsql
+DB_HOST=database.internal
+DB_PORT=5432
+DB_DATABASE=koamishin_portal
+DB_USERNAME=portal
+DB_PASSWORD=replace-with-a-secret
+
+SESSION_DRIVER=database
+CACHE_STORE=database
+QUEUE_CONNECTION=database
+
+MAIL_MAILER=smtp
+MAIL_HOST=mail.internal
+MAIL_PORT=587
+MAIL_USERNAME=replace-with-a-username
+MAIL_PASSWORD=replace-with-a-secret
+MAIL_FROM_ADDRESS=portal@example.com
+MAIL_FROM_NAME="${APP_NAME}"
+```
+
+Use the mail provider's required scheme and authentication settings. Configure trusted proxies and secure cookies for your actual topology; check generated HTTPS links and passkeys using the public `APP_URL`. See [configuration](../getting-started/configuration.mdx) for the available service settings. Never commit `.env` or put secrets in the Astro build.
+
+Generate the Laravel application key **once for a new instance**:
+
+```bash
+php artisan key:generate --no-interaction
+```
+
+Keep `APP_KEY` secret, back it up, and keep it stable across releases and all application and worker instances. Changing it can invalidate encrypted data and sessions. Do not run this command during a routine update or when restoring an existing installation.
+
+## 3. Build and initialize the application
+
+Install the locked frontend dependencies, including development dependencies, and build the assets. Then apply the application and enabled module migrations and create the public storage link:
+
+```bash
 npm ci
 npm run build
 php artisan migrate --force --no-interaction
-php artisan module:migrate --force --no-interaction
+php artisan module:migrate --all --force --no-interaction
 php artisan storage:link --no-interaction
 php artisan optimize --no-interaction
 ```
 
-Generate `APP_KEY` once for a new instance with `php artisan key:generate --no-interaction` before caching configuration. Keep the key stable across releases and share it securely with all application and worker instances. Start the supervised web server with access restricted, visit `/setup`, and start the worker. The exact process manager and proxy configuration depend on the host; validate the full deployment in staging. The [Astro landing](landing.mdx) has its own build and hosting steps.
+The root `npm run build` generates Wayfinder routes before compiling assets into `public/build/`. Deploy those assets with the matching code and PHP dependencies. `module:migrate` applies enabled module migrations; Blog is enabled in the committed `modules_statuses.json`. If the storage link already exists, verify that it points to the persistent `storage/app/public` directory rather than replacing it blindly.
 
-For updates, back up first, deploy the matching code and built assets, apply migrations with `php artisan migrate --force` and, when relevant, `php artisan module:migrate --force --no-interaction`, then refresh Laravel's caches and restart long-running processes. Test this sequence in a staging environment and plan rollback around potentially irreversible migrations. Avoid regenerating `APP_KEY` or Passport keys during routine deployment.
+Do **not** use `composer run setup` for a production installation. It regenerates `APP_KEY` and runs the default seeder, which creates known-password accounts, including a super administrator. See [installation](../getting-started/installation.mdx) for details.
 
-Run a supervised queue worker for the selected queue connection; the repository's Compose worker runs `php artisan queue:work --tries=3 --timeout=90`. Monitor failures, logs and disk space, and restart workers after deployment. Run `php artisan schedule:run` every minute if scheduled tasks are added or required. `/up` is the configured Laravel health endpoint; health checks should also account for the services on which the deployment depends.
+## 4. Start services and create the first administrator
 
-Back up and rehearse restoration of the database, persistent uploaded files, `APP_KEY`, and Passport signing keys. Preserve and restrict access to secrets separately from ordinary application artifacts. Monitor queue failures, application logs, service availability and backup success. Rotate credentials through the relevant provider and plan the effects of key rotation on existing sessions, encrypted data and tokens.
+1. Start PHP-FPM and the web server with the document root set to the release's `public/` directory. Configure TLS and proxy headers for your host. The [Laravel deployment guide](https://laravel.com/docs/13.x/deployment) contains a web-server configuration example.
+2. While access is restricted, open `https://auth.example.com/setup` using your actual domain. Enter the instance name and a strong, unique administrator password. The wizard creates a `super_admin` and signs that user into `/admin`.
+3. Confirm that `storage/oauth-private.key` and `storage/oauth-public.key` both exist, that the application can read them, and that the private key is not publicly accessible. On a fresh install the wizard generates them when the public key is absent. If only one key is present on an existing installation, restore the pair before opening the wizard: it invokes `passport:keys --force` when the public key is missing and can overwrite the private key.
+4. Start a supervised queue worker with the same environment and code as the application. For example, run the following command under your process manager and configure it to restart after exit:
+
+   ```bash
+   php artisan queue:work --tries=3 --timeout=60 --no-interaction
+   ```
+
+5. Confirm the `/up` endpoint responds, sign in to the admin panel, and test email delivery and the relevant authentication flow. `/up` checks that Laravel can respond; it does not replace checks for the database, queue, mail, or connected applications. Remove the temporary access restriction only when your validation is complete.
+
+The wizard is available whenever no user has the `super_admin` role. Keep a secured super administrator and control who can manage roles, because removing the last one reopens setup.
+
+The example worker timeout assumes the default database or Redis `retry_after` of 90 seconds. The worker or per-job timeout must be several seconds shorter than the queue's retry interval to avoid the same job being processed twice. Install PHP's PCNTL extension for worker timeouts and adjust the values to suit your jobs; see the [Laravel queue documentation](https://laravel.com/docs/13.x/queues#job-expirations-and-timeouts). Webhook delivery is queued and needs a running worker.
+
+If your deployment uses scheduled tasks, run `php artisan schedule:run --no-interaction` every minute through your host's scheduler. Monitor application logs, failed jobs, worker availability, disk usage, mail, and backups.
+
+## 5. Deploy an update
+
+1. Back up the database, persistent files, `APP_KEY`, and both Passport keys. Test restoration separately and plan a rollback, especially for irreversible migrations.
+2. Deploy the new code, locked Composer dependencies, and matching built assets. Preserve the existing environment file and persistent storage; do not regenerate keys or run the default seeder.
+3. Apply migrations and refresh caches:
+
+   ```bash
+   php artisan migrate --force --no-interaction
+   php artisan module:migrate --all --force --no-interaction
+   php artisan optimize:clear --no-interaction
+   php artisan optimize --no-interaction
+   php artisan queue:restart --no-interaction
+   ```
+
+4. Restart or reload long-running application processes as appropriate for your host. If using Octane, reload its workers after deploying code and configuration. Ensure the process manager restarts the queue workers after `queue:restart`.
+5. Check `/up`, sign in, and verify the affected integration and queue jobs. Keep the database and storage backups needed by your rollback plan.
+
+Test this release sequence in staging. Laravel caches configuration, so rebuild caches and restart long-running processes when environment values change. Keep secrets and backups access-controlled, and rehearse restoration of the database, uploaded files, `APP_KEY`, and Passport keys together.
 
 ## Bundled containers
 
-`docker-compose.yml` defines a FrankenPHP/Octane portal, a separate queue worker, PostgreSQL 17 and Redis, with persistent volumes. It does **not** run migrations or a scheduler. Its default application key and database password are placeholders; supply real unique secrets and consistent configuration to every service. Compose passes only selected environment variables into containers, so add required mail, URL and other settings explicitly.
+`docker-compose.yml` defines an Octane/FrankenPHP portal, queue worker, PostgreSQL 17, Redis, and persistent volumes. It does not run migrations or a scheduler, and its default application key and database password are placeholders. Supply unique secrets and consistent application, mail, and URL configuration to every service.
 
-Treat the Docker configuration as a starting point, not a turnkey production deployment. There is no `.dockerignore`, and the Dockerfile copies the build context: local `.env`, keys and other sensitive files can be included in image layers. Audit and exclude them before building. The startup script checks storage under `/var/www/html` while the image uses `/app`, and the health check relies on `ROOT` even though the Dockerfile declares it only as a build argument. The Compose worker supplies an explicit command, which bypasses the startup script; its `SUPERVISOR_PROFILE` does not select the script's `CONTAINER_MODE=worker` path. Remediate these assumptions and validate the worker and health checks in your environment. Confirm storage permissions, worker behavior, migrations, health checks, networking and backup/restore before exposing a container. Horizon and Pulse are not installed application dependencies and should not be assumed available.
+Treat the Docker configuration as a starting point rather than a production-ready deployment. There is no `.dockerignore`, and the Dockerfile copies its build context, so local `.env`, keys, and other sensitive files can enter image layers. Exclude them before building. The startup script checks `/var/www/html` while the image uses `/app`; the health check uses `ROOT` although the Dockerfile declares it only as a build argument. The Compose worker supplies an explicit command, bypassing the startup script, and its default `--timeout=90` equals the default Redis retry interval. Correct and validate these assumptions, worker settings, storage, migrations, networking, and health checks before exposure. Horizon and Pulse are not installed dependencies.
 
-The workflows in `.github/workflows/` define CI and release automation; inspect their triggers, permissions and registry configuration before enabling them in a fork.
+The workflows in `.github/workflows/` cover CI and release automation. Review their triggers, permissions, registry configuration, and secrets before enabling them in your repository.

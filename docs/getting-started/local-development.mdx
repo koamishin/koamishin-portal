@@ -1,10 +1,28 @@
 ---
 title: Local development
-description: Run the development services and checks.
+description: Run the portal and its frontend during development.
 ---
 
 # Local development
 
-Complete [installation](installation.mdx), then run `composer run dev`. This starts the Laravel server, queue listener, Pail log viewer and Vite development server. Configure mail if exercising email features. The default database is SQLite; configure `DB_*` and install the appropriate PHP driver for another database.
+Complete [installation](installation.mdx) first. The commands below run from the repository root.
 
-`npm run build` generates Wayfinder helpers and builds production assets. `npm run build:ssr` also builds the SSR bundle; `composer run dev:ssr` starts the SSR process alongside the server, queue and logs. See [contributing](../../CONTRIBUTING.md) for checks and [configuration](configuration.mdx) for environment settings.
+## Start and stop the development services
+
+```bash
+composer run dev
+```
+
+This runs four processes together: Laravel's local server, a queue listener, Pail for logs, and the Vite development server. The portal is normally available at `http://localhost:8000`. Keep the terminal open; press `Ctrl+C` to stop the processes. Set `APP_URL` to the same origin if you use a different address or port.
+
+Use `npm run build` to regenerate Wayfinder helpers and build the frontend assets. For server-side rendering, `npm run build:ssr` builds both bundles and `composer run dev:ssr` runs the server, queue, logs, and SSR process.
+
+## Common problems
+
+- **The setup page keeps appearing:** the database currently has no user with the `super_admin` role. Complete `/setup` on a private instance. Check the database connection if you expected an existing administrator.
+- **A database or missing-table error appears:** check `DB_CONNECTION` and its credentials, make sure the SQLite file exists if selected, and run the migrations shown in [installation](installation.mdx).
+- **The page reports a missing Vite manifest or asset:** run `npm ci` followed by `npm run build`, or start `composer run dev` so Vite serves assets during development.
+- **Email does not arrive:** configure a reachable mail service; the example SMTP settings assume a local service on port 2525.
+- **Passkeys fail on a local origin:** check that `APP_URL` matches the browser's origin, including the port. Consult [configuration](configuration.mdx) before changing an established instance's URL or keys.
+
+See [contributing](../../CONTRIBUTING.md) for the project's development checks, and the [Astro landing guide](../guides/landing.mdx) for running and building the documentation website separately.

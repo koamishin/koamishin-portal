@@ -1,14 +1,36 @@
 ---
 title: Configuration
-description: Configure the application and its services.
+description: Configure the portal URL, database, mail, and optional social login.
 ---
 
 # Configuration
 
-Copy `.env.example` to `.env` for a new installation and generate a unique `APP_KEY`. Keep `.env` private and retain the key securely. Set `APP_URL` to the actual external origin; passkey relying-party and allowed-origin settings derive from it. For production use HTTPS, `APP_ENV=production` and `APP_DEBUG=false`.
+Koamishin Portal reads its environment settings from `.env` and Laravel's `config/` files. Begin with the [local installation](installation.mdx) guide; use the [deployment guide](../guides/ci-cd.mdx) when configuring a server. Keep `.env` and all credentials out of version control.
 
-The example defaults to SQLite and database-backed sessions, cache and queues. Configure `DB_*` for the selected database, `SESSION_DRIVER`, `CACHE_STORE` and `QUEUE_CONNECTION` for the available infrastructure, and `MAIL_*` for a working mail service. The example SMTP endpoint is local and is not a production mail service. Configure `FILESYSTEM_DISK` and persistent storage as appropriate. Consult the relevant files in `config/` for all options.
+## Application and URL
 
-GitHub, Google and Facebook social login use `GITHUB_*`, `GOOGLE_*` and `FACEBOOK_*` client ID, secret and redirect URI variables in `config/services.php`, or the corresponding application settings. Register the exact callback URI with the provider. Provider settings and enablement are managed in the administration panel. Protect client secrets.
+For a new installation, copy `.env.example` to `.env` and generate `APP_KEY` once with `php artisan key:generate --no-interaction`. Back up the key securely. Changing it on an existing installation can invalidate encrypted data and sessions.
 
-After changing cached configuration, refresh it as part of deployment and restart long-running workers. See [deployment](../guides/ci-cd.mdx) and [security](../guides/security.mdx).
+Set `APP_URL` to the actual origin users will access, including its scheme and port. For example, the local Artisan server normally uses `http://localhost:8000`. Passkey relying-party and allowed-origin settings derive from this value. A production instance needs its public HTTPS origin, `APP_ENV=production`, and `APP_DEBUG=false`.
+
+## Database, sessions, cache, and queues
+
+The example configuration uses SQLite, with database-backed sessions, cache, and queues. For local SQLite, create `database/database.sqlite`, enable PDO SQLite, and run the migrations in the installation guide. For another supported database, create the database, install its PHP PDO driver, and set `DB_CONNECTION` and the relevant `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, and `DB_PASSWORD` values before migrating.
+
+`SESSION_DRIVER`, `CACHE_STORE`, and `QUEUE_CONNECTION` select the backing services. Choose drivers available in your environment. Database-backed services need their corresponding tables, created by the project migrations. Queue jobs require a running worker; `composer run dev` starts a listener locally.
+
+## Mail and files
+
+The example `MAIL_*` values point to an SMTP service at `127.0.0.1:2525`; the project does not start one. Configure a local mail catcher or a real mail provider to exercise password resets, verification, and email-based authentication. Set an appropriate `MAIL_FROM_ADDRESS` and `MAIL_FROM_NAME`.
+
+Configure `FILESYSTEM_DISK` and persistent storage for your environment. The public disk is exposed by `php artisan storage:link --no-interaction`; ensure the web server can serve that link when using uploaded public files.
+
+## Optional social sign-in
+
+GitHub, Google, and Facebook can be configured under **Settings → Social Login** in the administration panel. Enable each provider and supply its client ID, secret, and callback URI. The default callback paths are `/auth/github/callback`, `/auth/google/callback`, and `/auth/facebook/callback` on the portal origin. Register the exact URI with the provider.
+
+Alternatively, supply the matching `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `GITHUB_REDIRECT_URI` environment variables (or the equivalent `GOOGLE_` or `FACEBOOK_` variables). When both a provider's environment client ID and secret are set, those credentials take precedence over the stored settings. The provider must still be enabled in the panel. Protect the secrets and verify the complete login flow for your chosen provider.
+
+## Applying changes
+
+Local development generally reads changes on the next request. If configuration has been cached, refresh the cache as part of deployment and restart long-running workers so they load the new values. See [deployment and operations](../guides/ci-cd.mdx) and [security](../guides/security.mdx) for production guidance.
