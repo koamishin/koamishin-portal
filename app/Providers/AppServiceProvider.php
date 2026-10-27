@@ -37,7 +37,7 @@ class AppServiceProvider extends ServiceProvider
         $this->configureFeatures();
         $this->configurePassport();
 
-        Gate::before(fn ($user, $ability) => method_exists($user, 'hasRole') && $user->hasRole('super_admin') ? true : null);
+        Gate::before(fn ($user, $ability): ?true => method_exists($user, 'hasRole') && $user->hasRole('super_admin') ? true : null);
 
         User::observe(UserObserver::class);
     }

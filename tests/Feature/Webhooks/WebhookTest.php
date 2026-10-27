@@ -24,9 +24,7 @@ test('creating a user queues a webhook dispatch job for active endpoints', funct
         'email' => 'newuser@koamishin.com',
     ]);
 
-    Queue::assertPushed(DispatchWebhookJob::class, function (DispatchWebhookJob $job) use ($user): bool {
-        return $job->event === 'user.created' && $job->payload['data']['email'] === $user->email;
-    });
+    Queue::assertPushed(DispatchWebhookJob::class, fn(DispatchWebhookJob $job): bool => $job->event === 'user.created' && $job->payload['data']['email'] === $user->email);
 });
 
 test('dispatch webhook job sends svix headers and logs delivery', function (): void {
@@ -49,11 +47,9 @@ test('dispatch webhook job sends svix headers and logs delivery', function (): v
 
     $job->handle();
 
-    Http::assertSent(function ($request): bool {
-        return $request->hasHeader('svix-id')
-            && $request->hasHeader('svix-timestamp')
-            && $request->hasHeader('svix-signature');
-    });
+    Http::assertSent(fn($request): bool => $request->hasHeader('svix-id')
+        && $request->hasHeader('svix-timestamp')
+        && $request->hasHeader('svix-signature'));
 
     $delivery = WebhookDelivery::query()->where('webhook_endpoint_id', $endpoint->id)->first();
     expect($delivery)->not->toBeNull()

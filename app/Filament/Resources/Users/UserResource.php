@@ -163,7 +163,7 @@ class UserResource extends Resource
                                     return 'No social accounts linked.';
                                 }
 
-                                return $accounts->map(fn ($a) => ucfirst($a->provider).($a->nickname ? " (@{$a->nickname})" : ''))->implode(', ');
+                                return $accounts->map(fn ($a): string => ucfirst($a->provider).($a->nickname ? " (@{$a->nickname})" : ''))->implode(', ');
                             }),
                     ])
                     ->collapsible(),

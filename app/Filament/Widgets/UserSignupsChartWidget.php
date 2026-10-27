@@ -19,11 +19,9 @@ class UserSignupsChartWidget extends ChartWidget
     {
         $days = collect(range(13, 0))->map(fn ($daysAgo) => Carbon::today()->subDays($daysAgo));
 
-        $counts = $days->map(function (Carbon $date): int {
-            return User::query()
-                ->whereDate('created_at', $date->toDateString())
-                ->count();
-        });
+        $counts = $days->map(fn(Carbon $date): int => User::query()
+            ->whereDate('created_at', $date->toDateString())
+            ->count());
 
         return [
             'datasets' => [
