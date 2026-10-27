@@ -15,7 +15,6 @@ use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Actions\Action;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Auth\MultiFactor\Email\EmailAuthentication;
-use Filament\Enums\ThemeMode;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -48,25 +47,15 @@ class AdminPanelProvider extends PanelProvider
                 PanelsRenderHook::BODY_START,
                 fn (): string => Blade::render('@include("impersonate-banner")'),
             )
+            ->renderHook(
+                PanelsRenderHook::TENANT_MENU_AFTER,
+                fn (): string => Blade::render('@include("filament.components.application-menu")'),
+            )
             ->databaseNotifications()
             ->login()
             ->colors([
-                'primary' => [
-                    50 => '#f5f3ff',
-                    100 => '#ede9fe',
-                    200 => '#ddd6fe',
-                    300 => '#c4b5fd',
-                    400 => '#a78bfa',
-                    500 => '#8b5cf6',
-                    600 => '#6c47ff',
-                    700 => '#5b21b6',
-                    800 => '#4c1d95',
-                    900 => '#3b0764',
-                    950 => '#2e1065',
-                ],
-                'gray' => Color::Zinc,
+                'primary' => Color::Amber,
             ])
-            ->defaultThemeMode(ThemeMode::Dark)
             ->profile(EditProfile::class, isSimple: false)
             ->userMenuItems([
                 'profile' => fn (Action $action): Action => $action

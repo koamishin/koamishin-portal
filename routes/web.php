@@ -1,11 +1,14 @@
 <?php
 
 use App\Enums\SocialLoginProvider;
+use App\Filament\Resources\TenantApplications\TenantApplicationResource;
 use App\Http\Controllers\Auth\OpenIdConnectController;
 use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\ImpersonateController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\Setup\SetupController;
+use App\Models\Tenant;
+use App\Models\TenantApplication;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Laravel\Fortify\Features;
@@ -44,5 +47,17 @@ Route::get('oauth/jwks', [OpenIdConnectController::class, 'jwks'])->name('oauth.
 
 Route::get('setup', [SetupController::class, 'index'])->name('setup.index');
 Route::post('setup', [SetupController::class, 'store'])->name('setup.store');
+
+Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{application}', function (Tenant $tenant, TenantApplication $application) {
+    if ($application->tenant_id !== $tenant->id) {
+        abort(403);
+    }
+    session(['current_application_id' => $application->id]);
+
+    return redirect()->to(TenantApplicationResource::getUrl('view', [
+        'record' => $application,
+        'tenant' => $tenant,
+    ]));
+})->name('filament.admin.switch-application');
 
 require __DIR__.'/settings.php';

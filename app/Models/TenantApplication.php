@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -57,6 +58,40 @@ class TenantApplication extends Model
     public function oauthClient(): BelongsTo
     {
         return $this->belongsTo(Client::class, 'oauth_client_id');
+    }
+
+    /**
+     * Get the active application for the given (or current) tenant.
+     */
+    public static function current(?Tenant $tenant = null): ?self
+    {
+        $tenant ??= Filament::getTenant();
+
+        if (! $tenant) {
+            return null;
+        }
+
+        $appId = session('current_application_id');
+
+        $tenantKey = $tenant->getKey();
+
+        if ($appId) {
+            /** @var self|null $app */
+            $app = self::query()->where('tenant_id', $tenantKey)->find($appId);
+            if ($app) {
+                return $app;
+            }
+        }
+
+        /** @var self|null $default */
+        $default = self::query()->where('tenant_id', $tenantKey)->first();
+        if ($default) {
+            session(['current_application_id' => $default->id]);
+
+            return $default;
+        }
+
+        return null;
     }
 
     public function getFrameworkLabel(): string
