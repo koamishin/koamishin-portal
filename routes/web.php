@@ -9,6 +9,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\Setup\SetupController;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Laravel\Fortify\Features;
@@ -65,7 +66,7 @@ Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{applica
     ]));
 })->name('filament.admin.switch-application');
 
-Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment): \Illuminate\Http\RedirectResponse {
+Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment): RedirectResponse {
     if ($application->tenant_id !== $tenant->id) {
         abort(403);
     }
