@@ -46,8 +46,18 @@ use Spatie\Permission\Traits\HasRoles;
  * @property Carbon|null $updated_at
  * @property Carbon|null $banned_at
  * @property string|null $ban_reason
+ * @property string|null $username
+ * @property string|null $phone_number
+ * @property Carbon|null $phone_verified_at
+ * @property string|null $web3_wallet
+ * @property array<string, mixed>|null $metadata
+ * @property Carbon|null $two_factor_confirmed_at
+ * @property string|null $two_factor_secret
+ * @property string|null $app_authentication_secret
+ * @property bool $has_email_authentication
  * @property-read Collection<int, SocialAccount> $socialAccounts
  * @property-read Collection<int, Tenant> $tenants
+ * @property-read Collection<int, Session> $sessions
  */
 class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasEmailAuthentication, HasTenants, MustVerifyEmail, OAuthenticatable, PasskeyUser
 {
@@ -90,6 +100,11 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     protected $fillable = [
         'name',
         'email',
+        'username',
+        'phone_number',
+        'phone_verified_at',
+        'web3_wallet',
+        'metadata',
         'password',
         'profile_photo_path',
         'banned_at',
@@ -142,9 +157,36 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
             'banned_at' => 'datetime',
             'email_verified_at' => 'datetime',
             'has_email_authentication' => 'boolean',
+            'metadata' => 'array',
             'password' => 'hashed',
+            'phone_verified_at' => 'datetime',
             'two_factor_confirmed_at' => 'datetime',
         ];
+    }
+
+    /**
+     * @return HasMany<Session, $this>
+     */
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(Session::class);
+    }
+
+    public function hasVerifiedPhone(): bool
+    {
+        return $this->phone_verified_at !== null;
+    }
+
+    public function hasWeb3Wallet(): bool
+    {
+        return filled($this->web3_wallet);
+    }
+
+    public function hasMfa(): bool
+    {
+        return $this->two_factor_confirmed_at !== null
+            || filled($this->app_authentication_secret)
+            || $this->has_email_authentication;
     }
 
     /**
