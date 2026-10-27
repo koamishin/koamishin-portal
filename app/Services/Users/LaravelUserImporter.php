@@ -110,7 +110,7 @@ class LaravelUserImporter
                 ]);
 
                 // 2. Link to Application with Environment
-                if ($application) {
+                if ($application instanceof \App\Models\TenantApplication) {
                     $application->users()->syncWithoutDetaching([
                         $user->id => [
                             'environment' => $environment,
@@ -148,13 +148,13 @@ class LaravelUserImporter
         array $options = [],
     ): array {
         $lines = preg_split('/\r\n|\r|\n/', trim($csvContent));
-        if (! is_array($lines) || empty($lines)) {
+        if (! is_array($lines) || $lines === []) {
             return ['total' => 0, 'imported' => 0, 'updated' => 0, 'skipped' => 0, 'errors' => ['CSV content is empty.']];
         }
 
         $delimiter = str_contains($lines[0], ';') ? ';' : (str_contains($lines[0], "\t") ? "\t" : ',');
         $header = str_getcsv(array_shift($lines), $delimiter);
-        $header = array_map(fn ($col) => strtolower(trim((string) $col)), $header);
+        $header = array_map(fn ($col): string => strtolower(trim((string) $col)), $header);
 
         $records = [];
         foreach ($lines as $line) {
@@ -236,7 +236,7 @@ class LaravelUserImporter
                 ->limit($limit)
                 ->get();
 
-            $records = $rows->map(fn ($r) => (array) $r)->toArray();
+            $records = $rows->map(fn ($r): array => (array) $r)->toArray();
 
             return $this->importFromData($records, $tenant, $application, $environment, $options);
         } catch (\Throwable $e) {
