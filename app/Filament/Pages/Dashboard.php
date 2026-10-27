@@ -239,7 +239,7 @@ class Dashboard extends BaseDashboard
                             'development' => 'Development (Sandbox Users)',
                             'production' => 'Production (Live Users)',
                         ])
-                        ->default(fn (): string => (($app = $this->getActiveApplication()) instanceof \App\Models\TenantApplication) ? $app->environment : 'development')
+                        ->default(fn (): string => (($app = $this->getActiveApplication()) instanceof TenantApplication) ? $app->environment : 'development')
                         ->required(),
 
                     Textarea::make('content')
@@ -395,7 +395,7 @@ class Dashboard extends BaseDashboard
     public function getStatsProperty(): array
     {
         $app = $this->getActiveApplication();
-        $env = $app instanceof \App\Models\TenantApplication ? $app->environment : 'development';
+        $env = $app instanceof TenantApplication ? $app->environment : 'development';
 
         $userQuery = $app instanceof TenantApplication
             ? $app->users($env)
@@ -435,7 +435,7 @@ class Dashboard extends BaseDashboard
     public function getPagedUsers(): LengthAwarePaginator
     {
         $app = $this->getActiveApplication();
-        $env = $app instanceof \App\Models\TenantApplication ? $app->environment : 'development';
+        $env = $app instanceof TenantApplication ? $app->environment : 'development';
 
         $query = $app instanceof TenantApplication
             ? $app->users($env)

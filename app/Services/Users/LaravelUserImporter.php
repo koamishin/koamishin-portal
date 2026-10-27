@@ -110,7 +110,7 @@ class LaravelUserImporter
                 ]);
 
                 // 2. Link to Application with Environment
-                if ($application instanceof \App\Models\TenantApplication) {
+                if ($application instanceof TenantApplication) {
                     $application->users()->syncWithoutDetaching([
                         $user->id => [
                             'environment' => $environment,
