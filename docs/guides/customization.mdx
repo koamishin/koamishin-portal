@@ -1,10 +1,26 @@
 ---
 title: Customization
-description: Application settings and frontend customization.
+description: Change Portal settings, branding, and frontend assets.
 ---
 
 # Customization
 
-Set the application name and service configuration in `.env`; application settings are also managed in the Filament panel. Vue components and pages live in `resources/js/`, and the Filament theme is configured by `app/Providers/Filament/AdminPanelProvider.php`. Inspect the existing components and styles before changing branding or layouts. Rebuild assets with `npm run build` after frontend changes.
+## Change settings in the admin panel
 
-The project includes theme tooling; inspect `php artisan list` and the relevant command's `--help` before using it. See [configuration](../getting-started/configuration.mdx) for environment settings.
+Sign in as an administrator and open **Settings** in the Filament panel. **Application Details** provides fields for the site name, description, logo, favicon, localization, and support contact. **Application Features** and **Application Security** contain additional feature and security settings. Review and test the behavior of each setting before relying on it as a security policy.
+
+Settings stored in the panel are separate from service configuration in `.env`. For the application URL, database, mail, and social provider credentials, see [configuration](../getting-started/configuration.mdx). Uploaded public images need persistent storage and the public storage link described in [deployment](ci-cd.mdx).
+
+## Change the interface
+
+Vue and Inertia pages and components live in `resources/js/`; styles and Blade views live in `resources/css/` and `resources/views/`. Filament panel configuration, including the theme color, is in `app/Providers/Filament/AdminPanelProvider.php`. Reuse existing components and follow the neighboring code when changing a page.
+
+After changing frontend source, run the development server or rebuild the assets:
+
+```bash
+npm run build
+```
+
+The Astro landing and documentation are a separate site in `landing/`. Changes to the Portal's Vue or Filament pages do not rebuild that site; see [the Astro guide](landing.mdx).
+
+The project also includes theme tooling. Inspect `php artisan list` and a command's `--help` before using it.

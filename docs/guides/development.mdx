@@ -1,8 +1,34 @@
 ---
 title: Development
-description: Development workflow and checks.
+description: Work on the Portal and choose the appropriate project checks.
 ---
 
 # Development
 
-Follow the root [contribution guide](../../CONTRIBUTING.md) for conventions and relevant checks. `composer run dev` starts the local server and supporting development processes. `composer rector` checks changes without applying them; `composer rector:fix` applies them. See [local development](../getting-started/local-development.mdx) for setup.
+Complete [installation](../getting-started/installation.mdx), then run `composer run dev` from the repository root. This starts Laravel, the queue listener, logs, and Vite together; see [local development](../getting-started/local-development.mdx) for details and troubleshooting.
+
+## Make a change
+
+1. Find the relevant code using the [directory guide](directory-structure.mdx) and follow nearby conventions.
+2. Update the behavior and any relevant tests. Run the narrowest affected tests first, for example:
+
+   ```bash
+   php artisan test --compact tests/Feature/Setup/SetupTest.php
+   ```
+
+3. Run the checks appropriate to your change. The full test suite is `php artisan test --compact`.
+4. For frontend changes, use the running Vite server or run `npm run build` to regenerate route helpers and assets.
+
+## Available checks
+
+| Command | Purpose |
+| --- | --- |
+| `composer test:lint` | Check PHP formatting with Pint. |
+| `composer lint` | Apply PHP formatting with Pint. |
+| `composer phpstan` | Run PHP static analysis. |
+| `composer rector` | Preview Rector changes without applying them. |
+| `composer rector:fix` | Apply Rector changes. |
+| `npm run check` | Check the frontend with Vite Plus. |
+| `npm run types:check` | Check Vue and TypeScript types. |
+
+The root [contribution guide](../../CONTRIBUTING.md) describes the complete set of checks and project conventions. For documentation changes, the [Astro guide](landing.mdx) explains how to build and review the published site.

@@ -1,8 +1,20 @@
 ---
 title: Extensibility
-description: Extending the application.
+description: Find the existing extension points for the Portal.
 ---
 
 # Extensibility
 
-Follow the existing Laravel, Vue and Filament conventions when adding functionality. The application discovers Filament resources, pages and widgets in `app/Filament/`. Enabled modules can provide a Filament plugin through the registration in `AppServiceProvider`; inspect the existing Blog module before adding another module. See [contributing](../../CONTRIBUTING.md) for validation and project rules.
+## Extend the administration panel
+
+The panel discovers Filament resources, pages, and widgets under `app/Filament/`. Inspect the corresponding existing resource or page before adding a new one, and apply authorization and tenant scoping deliberately. Panel configuration is in `app/Providers/Filament/AdminPanelProvider.php`.
+
+## Work with modules
+
+The Blog module is in `Modules/Blog/` and is enabled in `modules_statuses.json`. `AppServiceProvider` looks for a Filament plugin on enabled modules and registers it with the admin panel when available. Inspect the Blog module and the installed module package's commands before adding or modifying a module. The [installation](../getting-started/installation.mdx) and [deployment](ci-cd.mdx) guides explain how to run module migrations.
+
+## React to user changes
+
+`UserObserver` dispatches user-created, user-updated, and user-deleted events through the webhook dispatcher. Integrations can subscribe to these events without changing the Portal; see [webhooks](core-concepts.mdx#webhooks). To store additional profile values, review [user metadata](user-metadata.mdx) and its visibility limits before adding fields or consumers.
+
+Follow the [contribution guide](../../CONTRIBUTING.md) and run checks appropriate to the change. Changes that handle authentication, personal data, or tenant access need explicit authorization and security review.
