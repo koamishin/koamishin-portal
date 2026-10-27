@@ -1,0 +1,10 @@
+---
+title: Reference
+description: Locate routes and integration details.
+---
+
+# Reference
+
+Application routes are defined in `routes/web.php`, `routes/api.php` and `routes/settings.php`; packages also register routes. Run `php artisan route:list` to inspect the routes for your installed dependencies. The protected API endpoints use Passport's `auth:api` guard. See [tenancy and OAuth integration](../guides/core-concepts.mdx) for endpoint descriptions and limitations.
+
+For client-side route helpers, inspect generated Wayfinder imports and existing Vue pages. `npm run build` regenerates helpers before building assets.

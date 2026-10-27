@@ -1,0 +1,33 @@
+---
+title: Tenancy and OAuth integration
+description: Tenant records, OAuth endpoints, and integration boundaries.
+---
+
+# Tenancy and OAuth integration
+
+## Tenant records
+
+Tenants have a name, slug, optional domain and logo, active flag, associated users and applications. Memberships store a role string. Administrators can manage these records in Filament. They are organizational records: the repository does not implement automatic tenant discovery, tenant-specific database switching, request scoping or enforced tenant isolation. `config/multitenancy.php` is not evidence that these are active; the referenced multitenancy package is not an installed dependency. Do not rely on tenant records as a security boundary without implementing and testing enforcement.
+
+## OAuth clients
+
+Passport provides the authorization server. The admin interface can create OAuth clients and associate applications with tenants. Creating a tenant application without an existing client creates a confidential authorization-code client with refresh-token support and registered redirect URIs. The generated secret is flashed in the creation flow, but no display consumer was found; verify the provisioning flow before relying on it. Editing a tenant application's redirect URI list does not automatically synchronize the Passport client. Review both records and update the client appropriately.
+
+The JavaScript client exchanges codes without a client secret, so it cannot use these newly generated confidential tenant-application clients as-is. For a public client, inspect `php artisan passport:client --help` and use Passport's `--public` option rather than assuming the administrative client creation form creates one. Register exact redirect URIs and use an authorization-code flow with PKCE where appropriate. A client must validate state and protect its tokens and any confidential client secret. Configure CORS for browser clients when cross-origin requests are required; no application-specific CORS policy is provided here.
+
+Passport scopes are `openid`, `profile`, `email` and `roles`; the defaults are `openid`, `profile` and `email`. Access tokens are configured for 15 days, refresh tokens for 30 days, and personal access tokens for six months. These are application settings in `AppServiceProvider`, not a guarantee of immediate revocation on every client.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `/.well-known/openid-configuration` | Discovery metadata |
+| `/oauth/jwks` | Public signing key, read from Passport storage |
+| `/api/oauth/userinfo` | Bearer-token protected user information |
+| `/api/user` | Bearer-token protected user model response |
+
+The userinfo response currently includes identity, email, roles and permissions regardless of requested scopes and is not tenant-scoped. Discovery advertises OpenID Connect metadata, but this repository does not implement ID-token issuance or nonce handling; do not assume OIDC conformance or use it as an OIDC identity provider without further implementation and validation.
+
+The `packages/koamishin-auth-js` and `packages/koamishin-auth-php` directories contain client source. Publication to package registries and end-to-end compatibility have not been established by this repository. Review and test them before use; the JavaScript client uses browser storage and its logout clears local tokens. Neither client should be assumed to provide centralized logout.
+
+## Webhooks
+
+The user observer dispatches `user.created`, `user.updated` and `user.deleted` events to active webhook endpoints subscribed to that event or `*`. Delivery is queued, so a functioning queue worker is required. The job sends JSON with `svix-id`, `svix-timestamp` and `svix-signature` headers, signing the message ID, timestamp and raw payload with HMAC-SHA256 using the endpoint secret. It records deliveries and attempts retries. Review `app/Jobs/DispatchWebhookJob.php` and validate signature interoperability and replay protection in the receiving application before relying on an integration. Payloads can contain personal data, roles and permissions; secure endpoints and limit access to delivery records.

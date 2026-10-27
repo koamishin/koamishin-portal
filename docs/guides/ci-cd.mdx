@@ -1,0 +1,38 @@
+---
+title: Deployment and operations
+description: Production setup and current container limitations.
+---
+
+# Deployment and operations
+
+Plan a deployment around the actual environment and review it before exposing the application. Use HTTPS, a private database and cache, a reliable mail service, persistent writable `storage/` and `bootstrap/cache/`, and a unique stable `APP_KEY`. Point a web server at `public/`, or run the configured Octane server behind a correctly configured TLS proxy. Set the public `APP_URL`, `APP_ENV=production` and `APP_DEBUG=false`.
+
+For a fresh installation, install locked PHP dependencies and build the frontend, configure production services, run the application's migrations and enabled module migrations, and create the `public/storage` link. Restrict network access while visiting `/setup` to create the initial super administrator. The wizard runs `passport:keys --force` when `storage/oauth-public.key` is absent, potentially overwriting an existing private key. Back up and restore the keys as a pair, and do not use the wizard on an existing installation with only one key present. Confirm that both key files are present and protected. Do not run the default seeder on an exposed production instance: it creates known-password accounts. See [installation](../getting-started/installation.mdx) for the seeder and `composer run setup` warnings.
+
+For a fresh deployment from the application root, after provisioning the database and configuring `.env`, a typical release sequence is:
+
+```bash
+composer install --no-dev --optimize-autoloader --no-interaction
+npm ci
+npm run build
+php artisan migrate --force --no-interaction
+php artisan module:migrate --force --no-interaction
+php artisan storage:link --no-interaction
+php artisan optimize --no-interaction
+```
+
+Generate `APP_KEY` once for a new instance with `php artisan key:generate --no-interaction` before caching configuration. Keep the key stable across releases and share it securely with all application and worker instances. Start the supervised web server with access restricted, visit `/setup`, and start the worker. The exact process manager and proxy configuration depend on the host; validate the full deployment in staging. The [Astro landing](landing.mdx) has its own build and hosting steps.
+
+For updates, back up first, deploy the matching code and built assets, apply migrations with `php artisan migrate --force` and, when relevant, `php artisan module:migrate --force --no-interaction`, then refresh Laravel's caches and restart long-running processes. Test this sequence in a staging environment and plan rollback around potentially irreversible migrations. Avoid regenerating `APP_KEY` or Passport keys during routine deployment.
+
+Run a supervised queue worker for the selected queue connection; the repository's Compose worker runs `php artisan queue:work --tries=3 --timeout=90`. Monitor failures, logs and disk space, and restart workers after deployment. Run `php artisan schedule:run` every minute if scheduled tasks are added or required. `/up` is the configured Laravel health endpoint; health checks should also account for the services on which the deployment depends.
+
+Back up and rehearse restoration of the database, persistent uploaded files, `APP_KEY`, and Passport signing keys. Preserve and restrict access to secrets separately from ordinary application artifacts. Monitor queue failures, application logs, service availability and backup success. Rotate credentials through the relevant provider and plan the effects of key rotation on existing sessions, encrypted data and tokens.
+
+## Bundled containers
+
+`docker-compose.yml` defines a FrankenPHP/Octane portal, a separate queue worker, PostgreSQL 17 and Redis, with persistent volumes. It does **not** run migrations or a scheduler. Its default application key and database password are placeholders; supply real unique secrets and consistent configuration to every service. Compose passes only selected environment variables into containers, so add required mail, URL and other settings explicitly.
+
+Treat the Docker configuration as a starting point, not a turnkey production deployment. There is no `.dockerignore`, and the Dockerfile copies the build context: local `.env`, keys and other sensitive files can be included in image layers. Audit and exclude them before building. The startup script checks storage under `/var/www/html` while the image uses `/app`, and the health check relies on `ROOT` even though the Dockerfile declares it only as a build argument. The Compose worker supplies an explicit command, which bypasses the startup script; its `SUPERVISOR_PROFILE` does not select the script's `CONTAINER_MODE=worker` path. Remediate these assumptions and validate the worker and health checks in your environment. Confirm storage permissions, worker behavior, migrations, health checks, networking and backup/restore before exposing a container. Horizon and Pulse are not installed application dependencies and should not be assumed available.
+
+The workflows in `.github/workflows/` define CI and release automation; inspect their triggers, permissions and registry configuration before enabling them in a fork.

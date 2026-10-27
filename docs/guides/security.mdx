@@ -1,0 +1,16 @@
+---
+title: Security
+description: Authentication, secrets, and operational boundaries.
+---
+
+# Security
+
+Fortify is configured for registration, password resets, email verification, two-factor authentication and passkeys. The Filament admin panel has its own authentication configuration and restricts access to users with `super_admin`; the application also gives that role a global Gate override. Review role assignments and protect privileged accounts with appropriate authentication factors. The first-run wizard accepts an administrator password of at least eight characters; choose a strong unique password.
+
+The default seeder creates known-password accounts, including a super administrator. Do not run it on an exposed instance; if used, secure or remove the accounts immediately. Rerunning it also assigns roles to preexisting users with the seeded email addresses. Restrict access and retain a secured super administrator when removing accounts, because removing the last super administrator reopens `/setup`. Restrict access to an uninitialized deployment until `/setup` is complete. The setup wizard is locked by the existence of a `super_admin`, so protect role administration and recover access deliberately.
+
+Protect `.env`, database credentials, OAuth client secrets, `APP_KEY`, and `storage/oauth-private.key`. Use HTTPS and appropriate proxy, cookie and session settings. Set a correct `APP_URL` for passkeys. Configure mail delivery and review registration and account recovery policies for your deployment. The application logs user activity; review log access and retention to avoid exposing sensitive information.
+
+Tenant associations do not enforce tenant isolation, and the userinfo endpoint currently exposes roles and permissions without scope filtering. See [tenancy and OAuth](core-concepts.mdx) before connecting clients. User impersonation is sensitive: inspect the current model and policy checks before granting roles or relying on impersonation controls.
+
+For vulnerability reports, use a private channel to reach the maintainers; no dedicated security contact is specified in the repository.

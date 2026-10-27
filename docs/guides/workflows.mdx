@@ -1,0 +1,10 @@
+---
+title: Workflows
+description: Development and first-run workflows.
+---
+
+# Workflows
+
+For local development, `composer run dev` starts the application server, queue listener, log viewer and Vite. A fresh, migrated and unseeded instance redirects to `/setup` until a `super_admin` exists. The wizard creates the initial administrator and, if the public key is absent, Passport keys. Fortify's configured home path is `/dashboard`; protected routes require authentication and, where specified, email verification.
+
+See [installation](../getting-started/installation.mdx) for the setup sequence and seeder warning, and [deployment](ci-cd.mdx) for production operations.

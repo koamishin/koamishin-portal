@@ -1,0 +1,18 @@
+{
+  "version": "1.4.0",
+  "image": "ghcr.io/koamishin/KoamiStarterKit:v1.4.0",
+  "commit": "b4e6d4e053c399743784928e978058e9c6eae7d3",
+  "branch": "main",
+  "timestamp": "2026-06-13T03:46:48Z",
+  "build_url": "https://github.com/koamishin/KoamiStarterKit/actions/runs/27455541499",
+  "release_type": "official",
+  "changelog": {
+    "current": "Version 1.4.0 - manual release",
+    "previous": "1.3.1"
+  },
+  "metadata": {
+    "author": "yukazakiri",
+    "workflow": "Manual Official Release",
+    "repository": "koamishin/KoamiStarterKit"
+  }
+}

@@ -1,0 +1,10 @@
+---
+title: Customization
+description: Application settings and frontend customization.
+---
+
+# Customization
+
+Set the application name and service configuration in `.env`; application settings are also managed in the Filament panel. Vue components and pages live in `resources/js/`, and the Filament theme is configured by `app/Providers/Filament/AdminPanelProvider.php`. Inspect the existing components and styles before changing branding or layouts. Rebuild assets with `npm run build` after frontend changes.
+
+The project includes theme tooling; inspect `php artisan list` and the relevant command's `--help` before using it. See [configuration](../getting-started/configuration.mdx) for environment settings.

@@ -1,0 +1,10 @@
+---
+title: Local development
+description: Run the development services and checks.
+---
+
+# Local development
+
+Complete [installation](installation.mdx), then run `composer run dev`. This starts the Laravel server, queue listener, Pail log viewer and Vite development server. Configure mail if exercising email features. The default database is SQLite; configure `DB_*` and install the appropriate PHP driver for another database.
+
+`npm run build` generates Wayfinder helpers and builds production assets. `npm run build:ssr` also builds the SSR bundle; `composer run dev:ssr` starts the SSR process alongside the server, queue and logs. See [contributing](../../CONTRIBUTING.md) for checks and [configuration](configuration.mdx) for environment settings.

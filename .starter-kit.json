@@ -1,0 +1,8 @@
+{
+    "docker_enabled": true,
+    "docker_update_strategy": "rolling",
+    "docker_registry": "ghcr.io",
+    "docker_registry_type": "ghcr",
+    "docker_image_name": "my-org/koamishin-portal",
+    "configured_at": "2026-10-26T23:58:32+00:00"
+}

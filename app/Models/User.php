@@ -1,0 +1,190 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use Database\Factories\UserFactory;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
+use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthentication;
+use Filament\Auth\MultiFactor\App\Contracts\HasAppAuthenticationRecovery;
+use Filament\Auth\MultiFactor\Email\Concerns\InteractsWithEmailAuthentication;
+use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Lab404\Impersonate\Models\Impersonate;
+use Laravel\Fortify\Contracts\PasskeyUser;
+use Laravel\Fortify\PasskeyAuthenticatable;
+use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
+use Spatie\Activitylog\LogOptions;
+use Spatie\Activitylog\Traits\LogsActivity;
+use Spatie\Permission\Traits\HasRoles;
+
+/**
+ * @property int $id
+ * @property string $name
+ * @property string $email
+ * @property string|null $profile_photo_path
+ * @property Carbon|null $email_verified_at
+ * @property string $password
+ * @property string|null $remember_token
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $banned_at
+ * @property string|null $ban_reason
+ */
+class User extends Authenticatable implements FilamentUser, HasAppAuthentication, HasAppAuthenticationRecovery, HasEmailAuthentication, MustVerifyEmail, OAuthenticatable, PasskeyUser
+{
+    /** @use HasFactory<UserFactory> */
+    use HasApiTokens, HasFactory, HasRoles, Impersonate, Notifiable;
+
+    use InteractsWithAppAuthentication;
+    use InteractsWithAppAuthenticationRecovery;
+    use InteractsWithEmailAuthentication;
+    use LogsActivity;
+    use PasskeyAuthenticatable;
+    use TwoFactorAuthenticatable;
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        return $this->hasRole('super_admin');
+    }
+
+    public function canImpersonate(): bool
+    {
+        return $this->hasRole('admin');
+    }
+
+    public function getActivitylogOptions(): LogOptions
+    {
+        return LogOptions::defaults()
+            ->logAll();
+    }
+
+    public function canBeImpersonated(): bool
+    {
+        return ! $this->hasRole('admin');
+    }
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var list<string>
+     */
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'profile_photo_path',
+        'banned_at',
+        'ban_reason',
+    ];
+
+    /**
+     * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'password',
+        'two_factor_secret',
+        'two_factor_recovery_codes',
+        'app_authentication_secret',
+        'app_authentication_recovery_codes',
+        'remember_token',
+    ];
+
+    /**
+     * Get the user's profile photo URL.
+     */
+    public function getProfilePhotoUrlAttribute(): ?string
+    {
+        if ($this->profile_photo_path) {
+            return asset('storage/'.$this->profile_photo_path);
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the disk that profile photos should be stored on.
+     */
+    protected function profilePhotoDisk(): string
+    {
+        return 'public';
+    }
+
+    /**
+     * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
+     */
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'banned_at' => 'datetime',
+            'email_verified_at' => 'datetime',
+            'has_email_authentication' => 'boolean',
+            'password' => 'hashed',
+            'two_factor_confirmed_at' => 'datetime',
+        ];
+    }
+
+    /**
+     * @return HasMany<SocialAccount, $this>
+     */
+    public function socialAccounts(): HasMany
+    {
+        return $this->hasMany(SocialAccount::class);
+    }
+
+    /**
+     * @return BelongsToMany<Tenant, $this>
+     */
+    public function tenants(): BelongsToMany
+    {
+        return $this->belongsToMany(Tenant::class, 'tenant_user')
+            ->withPivot('role')
+            ->withTimestamps();
+    }
+
+    public function isBanned(): bool
+    {
+        return $this->banned_at !== null;
+    }
+
+    public function ban(?string $reason = null): void
+    {
+        $this->forceFill([
+            'banned_at' => now(),
+            'ban_reason' => $reason,
+        ])->save();
+
+        $this->revokeAllSessions();
+    }
+
+    public function unban(): void
+    {
+        $this->forceFill([
+            'banned_at' => null,
+            'ban_reason' => null,
+        ])->save();
+    }
+
+    public function revokeAllSessions(): void
+    {
+        DB::table('sessions')->where('user_id', $this->id)->delete();
+        $this->tokens()->update(['revoked' => true]);
+    }
+}

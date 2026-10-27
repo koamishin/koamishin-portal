@@ -1,0 +1,27 @@
+includes:
+    - ./vendor/phpstan/phpstan/conf/bleedingEdge.neon
+    - phpstan-baseline.neon
+
+parameters:
+    level: 5
+    paths:
+        - app
+        - routes
+        - tests
+    
+    # Laravel-specific configurations
+    excludePaths:
+        - ./*/*/FileToBeExcluded.php
+        - bootstrap/cache
+        - storage
+        - vendor
+    
+    # Ignore common Laravel patterns and Pest internal classes
+    ignoreErrors:
+        - '#Unsafe usage of new static#'
+        - '#Call to an undefined method Illuminate\\Database\\Eloquent\\Builder#'
+        - '#Call to an undefined method Illuminate\\Database\\Query\\Builder#'
+        - '#Call to method .+ of internal class Pest\\.+ from outside its root namespace Pest\.#'
+    
+    # Report unused declarations
+    reportUnmatchedIgnoredErrors: false

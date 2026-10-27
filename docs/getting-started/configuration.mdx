@@ -1,0 +1,14 @@
+---
+title: Configuration
+description: Configure the application and its services.
+---
+
+# Configuration
+
+Copy `.env.example` to `.env` for a new installation and generate a unique `APP_KEY`. Keep `.env` private and retain the key securely. Set `APP_URL` to the actual external origin; passkey relying-party and allowed-origin settings derive from it. For production use HTTPS, `APP_ENV=production` and `APP_DEBUG=false`.
+
+The example defaults to SQLite and database-backed sessions, cache and queues. Configure `DB_*` for the selected database, `SESSION_DRIVER`, `CACHE_STORE` and `QUEUE_CONNECTION` for the available infrastructure, and `MAIL_*` for a working mail service. The example SMTP endpoint is local and is not a production mail service. Configure `FILESYSTEM_DISK` and persistent storage as appropriate. Consult the relevant files in `config/` for all options.
+
+GitHub, Google and Facebook social login use `GITHUB_*`, `GOOGLE_*` and `FACEBOOK_*` client ID, secret and redirect URI variables in `config/services.php`, or the corresponding application settings. Register the exact callback URI with the provider. Provider settings and enablement are managed in the administration panel. Protect client secrets.
+
+After changing cached configuration, refresh it as part of deployment and restart long-running workers. See [deployment](../guides/ci-cd.mdx) and [security](../guides/security.mdx).

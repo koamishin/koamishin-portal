@@ -1,0 +1,12 @@
+---
+title: Architecture
+description: Application structure and boundaries.
+---
+
+# Architecture
+
+Laravel serves Vue pages through Inertia, with Filament at `/admin`. Fortify handles account authentication, Passport provides OAuth authorization and API authentication, and Socialite integrates configured social providers. Spatie packages provide roles, permissions, settings and activity logging. Wayfinder generates TypeScript route helpers during frontend builds. The Blog module is enabled in `modules_statuses.json`.
+
+Tenant and membership records do not provide automatic request isolation or database switching. Discovery metadata does not mean the implementation issues OpenID Connect ID tokens or handles OIDC nonces. Userinfo is not tenant-scoped and currently returns roles and permissions without filtering by OAuth scope. See [tenancy and OAuth](guides/core-concepts.mdx) before using these capabilities as security boundaries.
+
+The root `composer.json`, `package.json`, lockfiles, `routes/`, `config/`, `app/`, `Modules/` and `resources/` define the actual runtime behavior. Local client source exists under `packages/`; registry publication and compatibility are not established here.

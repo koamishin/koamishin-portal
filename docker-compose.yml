@@ -1,0 +1,94 @@
+name: koamishin-portal
+
+services:
+  portal:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      APP_NAME: "${APP_NAME:-Koamishin Portal}"
+      APP_ENV: "${APP_ENV:-production}"
+      APP_KEY: "${APP_KEY:-base64:KoamishinPortalDefaultProductionKeyNeeded=}"
+      APP_DEBUG: "${APP_DEBUG:-false}"
+      APP_URL: "${APP_URL:-http://localhost:8000}"
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: "${DB_DATABASE:-koamishin_portal}"
+      DB_USERNAME: "${DB_USERNAME:-portal}"
+      DB_PASSWORD: "${DB_PASSWORD:-secret_password}"
+      CACHE_STORE: redis
+      SESSION_DRIVER: redis
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      OCTANE_SERVER: frankenphp
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - portal_storage:/app/storage
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    restart: unless-stopped
+    environment:
+      APP_NAME: "${APP_NAME:-Koamishin Portal}"
+      APP_ENV: "${APP_ENV:-production}"
+      APP_KEY: "${APP_KEY:-base64:KoamishinPortalDefaultProductionKeyNeeded=}"
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: "${DB_DATABASE:-koamishin_portal}"
+      DB_USERNAME: "${DB_USERNAME:-portal}"
+      DB_PASSWORD: "${DB_PASSWORD:-secret_password}"
+      QUEUE_CONNECTION: redis
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      SUPERVISOR_PROFILE: worker
+    command: ["php", "artisan", "queue:work", "--tries=3", "--timeout=90"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - portal_storage:/app/storage
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${DB_DATABASE:-koamishin_portal}"
+      POSTGRES_USER: "${DB_USERNAME:-portal}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-secret_password}"
+    volumes:
+      - pgsql_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-portal} -d ${DB_DATABASE:-koamishin_portal}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  portal_storage:
+  pgsql_data:
+  redis_data:

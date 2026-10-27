@@ -1,0 +1,30 @@
+---
+title: Installation
+description: Install a fresh local Koamishin Portal instance.
+---
+
+# Installation
+
+Use PHP 8.5 with the extensions required by Composer and Laravel, Composer 2, Node.js 22 and npm. PHP `^8.3` is declared by the project; the CI test matrix uses 8.4 and 8.5. SQLite and its PHP PDO driver are sufficient for the default local configuration. For another database, configure and create it before migrating.
+
+From a fresh checkout, run:
+
+```bash
+composer install
+test -f .env || cp .env.example .env
+php artisan key:generate
+mkdir -p database
+touch database/database.sqlite
+php artisan migrate --no-interaction
+php artisan module:migrate --force --no-interaction
+php artisan storage:link
+npm ci
+npm run build
+composer run dev
+```
+
+If Composer's installation script already created `.env`, keep it instead of overwriting it. Configure the database in `.env` before migrations. For the default local server, set `APP_URL=http://localhost:8000` so passkey origins and generated callback URLs use the right port. The module command migrates enabled modules; `modules_statuses.json` enables Blog. `storage:link` exposes files on Laravel's public disk. `composer run dev` starts the Laravel server, a queue listener, Pail and Vite; normally the server listens on `http://localhost:8000`.
+
+Visit `/setup` on the private local instance to create the initial `super_admin` and sign in to `/admin`. The setup handler runs `passport:keys --force` if the public key is absent; this can overwrite an existing private key. Restore or back up both keys as a pair before using the wizard on an existing installation. Configure mail before testing verification or password reset messages. The first-run check depends on whether a user has the `super_admin` role, so do not expose an uninitialized instance to untrusted users.
+
+**Do not run `composer run setup` on an existing instance.** It generates an application key, migrates and seeds the database, builds assets and generates Shield permissions. The default seeder creates `admin@admin.com` and `user@user.com` with password `password`; the former is a super administrator. Seeding bypasses the setup wizard. Never expose those accounts: secure or remove them immediately if the seeder has been used. Keep a secured super administrator and restrict access while making changes: removing the last one reopens `/setup`. The seeder also assigns roles to preexisting users with those email addresses when rerun. Changing an existing `APP_KEY` can invalidate encrypted data and sessions.
