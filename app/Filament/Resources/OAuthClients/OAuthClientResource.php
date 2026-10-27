@@ -124,7 +124,7 @@ class OAuthClientResource extends Resource
                     ->falseIcon('heroicon-o-check-circle')
                     ->trueColor('danger')
                     ->falseColor('success')
-                    ->tooltip(fn (Client $record): string => $record->revoked ? 'Revoked' : 'Active'),
+                    ->tooltip(fn (Client $record): string => (bool) $record->getAttribute('revoked') ? 'Revoked' : 'Active'),
 
                 TextColumn::make('created_at')
                     ->label('Created')

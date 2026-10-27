@@ -20,14 +20,15 @@ class CreateTenantApplication extends CreateRecord
             $secret = Str::random(40);
 
             $client = new Client;
-            $client->name = $data['name'];
-            $client->secret = $secret;
-            $client->redirect_uris = $data['redirect_uris'] ?? [];
-            $client->grant_types = ['authorization_code', 'refresh_token'];
-            $client->revoked = false;
-            $client->save();
+            $client->forceFill([
+                'name' => $data['name'],
+                'secret' => $secret,
+                'redirect_uris' => $data['redirect_uris'] ?? [],
+                'grant_types' => ['authorization_code', 'refresh_token'],
+                'revoked' => false,
+            ])->save();
 
-            $data['oauth_client_id'] = $client->id;
+            $data['oauth_client_id'] = (string) $client->getKey();
 
             session()->flash('new_app_secret', $secret);
         }

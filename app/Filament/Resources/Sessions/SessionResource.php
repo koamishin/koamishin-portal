@@ -49,7 +49,7 @@ class SessionResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
-            ->query(Session::query()->whereNotNull('user_id')->latest('last_activity'))
+            ->modifyQueryUsing(fn ($query) => $query->whereNotNull('user_id')->latest('last_activity'))
             ->columns([
                 TextColumn::make('user.name')
                     ->label('User')

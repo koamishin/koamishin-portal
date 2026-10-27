@@ -18,18 +18,18 @@ class AuthStatsOverviewWidget extends BaseWidget
     #[\Override]
     protected function getStats(): array
     {
-        $totalUsers = User::count();
-        $bannedUsers = User::whereNotNull('banned_at')->count();
-        $unverifiedUsers = User::whereNull('email_verified_at')->count();
+        $totalUsers = User::query()->count();
+        $bannedUsers = User::query()->whereNotNull('banned_at')->count();
+        $unverifiedUsers = User::query()->whereNull('email_verified_at')->count();
 
         $activeSessions = DB::table('sessions')
             ->whereNotNull('user_id')
             ->count();
 
-        $oauthApps = Client::where('revoked', false)->count();
+        $oauthApps = Client::query()->where('revoked', false)->count();
 
-        $deliveriesTotal = WebhookDelivery::count();
-        $deliveriesSuccess = WebhookDelivery::where('status', 'delivered')->count();
+        $deliveriesTotal = WebhookDelivery::query()->count();
+        $deliveriesSuccess = WebhookDelivery::query()->where('status', 'delivered')->count();
         $deliveryRate = $deliveriesTotal > 0
             ? round(($deliveriesSuccess / $deliveriesTotal) * 100).'%'
             : '100%';

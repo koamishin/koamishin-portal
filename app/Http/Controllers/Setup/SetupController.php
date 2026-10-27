@@ -49,12 +49,13 @@ class SetupController extends Controller
         $settings->site_name = $validated['instance_name'];
         $settings->save();
 
-        $role = Role::firstOrCreate([
+        $role = Role::query()->firstOrCreate([
             'name' => 'super_admin',
             'guard_name' => 'web',
         ]);
 
-        $admin = User::create([
+        /** @var User $admin */
+        $admin = User::query()->create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => Hash::make($validated['password']),

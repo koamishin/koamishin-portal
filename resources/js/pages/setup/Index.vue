@@ -90,7 +90,11 @@ function submit() {
                 <InputError :message="form.errors.password_confirmation" />
             </div>
 
-            <Button type="submit" class="w-full mt-6" :disabled="form.processing">
+            <Button
+                type="submit"
+                class="w-full mt-6"
+                :disabled="form.processing"
+            >
                 <Spinner v-if="form.processing" class="mr-2" />
                 Initialize Portal &amp; Launch
             </Button>

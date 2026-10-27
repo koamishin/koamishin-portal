@@ -43,7 +43,8 @@ class DispatchWebhookJob implements ShouldQueue
         $toSign = "{$msgId}.{$timestamp}.{$rawPayload}";
         $signature = 'v1,'.base64_encode(hash_hmac('sha256', $toSign, $this->endpoint->secret, true));
 
-        $delivery = WebhookDelivery::create([
+        /** @var WebhookDelivery $delivery */
+        $delivery = WebhookDelivery::query()->create([
             'webhook_endpoint_id' => $this->endpoint->id,
             'event' => $this->event,
             'payload' => $this->payload,

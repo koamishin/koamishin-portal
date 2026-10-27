@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $user_agent
  * @property string $payload
  * @property int $last_activity
+ * @property-read Carbon $last_active
  */
 class Session extends Model
 {

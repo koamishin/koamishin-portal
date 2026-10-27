@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $access_token
  * @property string|null $refresh_token
  * @property Carbon|null $expires_at
+ * @property-read User $user
  */
 class SocialAccount extends Model
 {

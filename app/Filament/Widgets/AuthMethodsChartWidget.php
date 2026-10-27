@@ -18,12 +18,12 @@ class AuthMethodsChartWidget extends ChartWidget
     #[\Override]
     protected function getData(): array
     {
-        $passwords = User::whereNotNull('password')->count();
+        $passwords = User::query()->whereNotNull('password')->count();
         $passkeys = DB::table('passkeys')->count();
-        $github = SocialAccount::where('provider', 'github')->count();
-        $google = SocialAccount::where('provider', 'google')->count();
-        $facebook = SocialAccount::where('provider', 'facebook')->count();
-        $mfa = User::whereNotNull('app_authentication_secret')
+        $github = SocialAccount::query()->where('provider', 'github')->count();
+        $google = SocialAccount::query()->where('provider', 'google')->count();
+        $facebook = SocialAccount::query()->where('provider', 'facebook')->count();
+        $mfa = User::query()->whereNotNull('app_authentication_secret')
             ->orWhere('has_email_authentication', true)
             ->count();
 

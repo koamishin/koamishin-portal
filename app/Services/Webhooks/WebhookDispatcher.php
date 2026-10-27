@@ -7,6 +7,7 @@ namespace App\Services\Webhooks;
 use App\Jobs\DispatchWebhookJob;
 use App\Models\User;
 use App\Models\WebhookEndpoint;
+use Illuminate\Support\Carbon;
 
 class WebhookDispatcher
 {
@@ -51,8 +52,8 @@ class WebhookDispatcher
             'ban_reason' => $user->ban_reason,
             'roles' => $user->getRoleNames()->toArray(),
             'permissions' => $user->getAllPermissions()->pluck('name')->toArray(),
-            'created_at' => $user->created_at instanceof \DateTimeInterface ? $user->created_at->format(\DateTimeInterface::ATOM) : (is_string($user->created_at) ? $user->created_at : null),
-            'updated_at' => $user->updated_at instanceof \DateTimeInterface ? $user->updated_at->format(\DateTimeInterface::ATOM) : (is_string($user->updated_at) ? $user->updated_at : null),
+            'created_at' => $user->created_at ? Carbon::parse($user->created_at)->toIso8601String() : null,
+            'updated_at' => $user->updated_at ? Carbon::parse($user->updated_at)->toIso8601String() : null,
         ];
     }
 }

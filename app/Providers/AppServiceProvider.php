@@ -16,6 +16,7 @@ use Inertia\Inertia;
 use Laravel\Passport\Passport;
 use Laravel\Pennant\FeatureManager;
 use Nwidart\Modules\Facades\Module;
+use Symfony\Component\HttpFoundation\Response;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -92,13 +93,13 @@ class AppServiceProvider extends ServiceProvider
         ]);
 
         Passport::authorizationView(
-            fn ($parameters) => Inertia::render('auth/oauth/Authorize', [
+            fn (array $parameters): Response => Inertia::render('auth/oauth/Authorize', [
                 'request' => $parameters['request'],
                 'authToken' => $parameters['authToken'],
                 'client' => $parameters['client'],
                 'user' => $parameters['user'],
                 'scopes' => $parameters['scopes'],
-            ])
+            ])->toResponse(request())
         );
     }
 

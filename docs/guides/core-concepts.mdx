@@ -17,12 +17,12 @@ The JavaScript client exchanges codes without a client secret, so it cannot use 
 
 Passport scopes are `openid`, `profile`, `email` and `roles`; the defaults are `openid`, `profile` and `email`. Access tokens are configured for 15 days, refresh tokens for 30 days, and personal access tokens for six months. These are application settings in `AppServiceProvider`, not a guarantee of immediate revocation on every client.
 
-| Endpoint | Purpose |
-| --- | --- |
-| `/.well-known/openid-configuration` | Discovery metadata |
-| `/oauth/jwks` | Public signing key, read from Passport storage |
-| `/api/oauth/userinfo` | Bearer-token protected user information |
-| `/api/user` | Bearer-token protected user model response |
+| Endpoint                            | Purpose                                        |
+| ----------------------------------- | ---------------------------------------------- |
+| `/.well-known/openid-configuration` | Discovery metadata                             |
+| `/oauth/jwks`                       | Public signing key, read from Passport storage |
+| `/api/oauth/userinfo`               | Bearer-token protected user information        |
+| `/api/user`                         | Bearer-token protected user model response     |
 
 The userinfo response currently includes identity, email, roles and permissions regardless of requested scopes and is not tenant-scoped. Discovery advertises OpenID Connect metadata, but this repository does not implement ID-token issuance or nonce handling; do not assume OIDC conformance or use it as an OIDC identity provider without further implementation and validation.
 

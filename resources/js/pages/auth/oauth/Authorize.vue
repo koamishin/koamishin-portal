@@ -56,19 +56,39 @@ function deny() {
         <Head :title="`Authorize ${client.name}`" />
 
         <div class="space-y-6">
-            <div class="rounded-lg border border-border p-4 bg-muted/40 text-sm">
+            <div
+                class="rounded-lg border border-border p-4 bg-muted/40 text-sm"
+            >
                 <p class="font-medium text-foreground">Logged in as:</p>
-                <p class="text-muted-foreground">{{ user.name }} ({{ user.email }})</p>
+                <p class="text-muted-foreground">
+                    {{ user.name }} ({{ user.email }})
+                </p>
             </div>
 
             <div v-if="scopes.length > 0" class="space-y-3">
-                <p class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                <p
+                    class="text-xs font-semibold uppercase tracking-wider text-muted-foreground"
+                >
                     Requested Permissions
                 </p>
                 <ul class="space-y-2 text-sm text-foreground">
-                    <li v-for="scope in scopes" :key="scope.id" class="flex items-center gap-2">
-                        <svg class="h-4 w-4 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    <li
+                        v-for="scope in scopes"
+                        :key="scope.id"
+                        class="flex items-center gap-2"
+                    >
+                        <svg
+                            class="h-4 w-4 text-emerald-500 shrink-0"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                        >
+                            <path
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                                stroke-width="2"
+                                d="M5 13l4 4L19 7"
+                            />
                         </svg>
                         <span>{{ scope.description || scope.id }}</span>
                     </li>
@@ -76,9 +96,7 @@ function deny() {
             </div>
 
             <div class="flex items-center gap-3 pt-4">
-                <Button class="flex-1" @click="approve">
-                    Authorize
-                </Button>
+                <Button class="flex-1" @click="approve"> Authorize </Button>
                 <Button variant="outline" class="flex-1" @click="deny">
                     Cancel
                 </Button>

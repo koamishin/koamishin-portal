@@ -61,12 +61,6 @@ parameters:
 			path: app/Filament/Resources/FeatureFlag/FeatureFlagResource.php
 
 		-
-			rawMessage: Access to an undefined property App\Models\SocialAccount::$user.
-			identifier: property.notFound
-			count: 1
-			path: app/Http/Controllers/Auth/SocialAuthController.php
-
-		-
 			rawMessage: Access to an undefined property Laravel\Socialite\Contracts\User::$expiresIn.
 			identifier: property.notFound
 			count: 1
@@ -169,6 +163,66 @@ parameters:
 			path: tests/Feature/Auth/EmailVerificationTest.php
 
 		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$grant_types.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$id.
+			identifier: property.notFound
+			count: 3
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$name.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$redirect_uris.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$revoked.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$secret.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::actingAs().'
+			identifier: method.notFound
+			count: 2
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::getJson().'
+			identifier: method.notFound
+			count: 3
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::postJson().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::withToken().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Auth/OpenIdConnectTest.php
+
+		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::actingAs().'
 			identifier: method.notFound
 			count: 1
@@ -207,13 +261,7 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::post().'
 			identifier: method.notFound
-			count: 1
-			path: tests/Feature/Auth/RegistrationTest.php
-
-		-
-			rawMessage: 'Call to an undefined static method Spatie\Permission\Models\Role::firstOrCreate().'
-			identifier: staticMethod.notFound
-			count: 1
+			count: 2
 			path: tests/Feature/Auth/RegistrationTest.php
 
 		-
@@ -269,6 +317,12 @@ parameters:
 			identifier: method.notFound
 			count: 2
 			path: tests/Feature/DashboardTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::seed().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/DatabaseSeederTest.php
 
 		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::get().'
@@ -343,6 +397,12 @@ parameters:
 			path: tests/Feature/FilamentProfilePageTest.php
 
 		-
+			rawMessage: Access to an undefined property Pest\Mixins\Expectation<string|null>::$not.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/InertiaLayoutResolverTest.php
+
+		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::actingAs().'
 			identifier: method.notFound
 			count: 3
@@ -391,6 +451,12 @@ parameters:
 			path: tests/Feature/Settings/TwoFactorAuthenticationTest.php
 
 		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::call().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Settings/TwoFactorAuthenticationTest.php
+
+		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::deleteJson().'
 			identifier: method.notFound
 			count: 2
@@ -399,11 +465,143 @@ parameters:
 		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::postJson().'
 			identifier: method.notFound
-			count: 6
+			count: 5
 			path: tests/Feature/Settings/TwoFactorAuthenticationTest.php
+
+		-
+			rawMessage: Access to an undefined property Pest\Mixins\Expectation<mixed>::$name.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Setup/SetupTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Illuminate\Contracts\Auth\Factory::id().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Setup/SetupTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::get().'
+			identifier: method.notFound
+			count: 2
+			path: tests/Feature/Setup/SetupTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::post().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Setup/SetupTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method Spatie\Permission\Models\Role::firstOrCreate().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Setup/SetupTest.php
+
+		-
+			rawMessage: Access to an undefined property App\Console\Commands\SetupStarterKit@anonymous/tests/Feature/SetupStarterKitTest.php:786::$calls.
+			identifier: property.notFound
+			count: 2
+			path: tests/Feature/SetupStarterKitTest.php
 
 		-
 			rawMessage: 'Call to an undefined method Pest\PendingCalls\TestCall::markTestSkipped().'
 			identifier: method.notFound
 			count: 1
 			path: tests/Feature/SetupStarterKitTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$grant_types.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$id.
+			identifier: property.notFound
+			count: 2
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$name.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$redirect_uris.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$revoked.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Laravel\Passport\Client::$secret.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Pest\Mixins\Expectation<mixed>::$framework.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Pest\Mixins\Expectation<mixed>::$name.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined method Livewire\Features\SupportTesting\Testable<Livewire\Component>::fillForm().'
+			identifier: method.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method App\Models\Tenant::create().'
+			identifier: staticMethod.notFound
+			count: 2
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method App\Models\TenantApplication::create().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method App\Models\TenantApplication::where().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method Laravel\Passport\Client::find().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method Spatie\Permission\Models\Role::firstOrCreate().'
+			identifier: staticMethod.notFound
+			count: 1
+			path: tests/Feature/Tenancy/TenancyTest.php
+
+		-
+			rawMessage: Access to an undefined property Pest\Mixins\Expectation<mixed>::$status.
+			identifier: property.notFound
+			count: 1
+			path: tests/Feature/Webhooks/WebhookTest.php
+
+		-
+			rawMessage: 'Call to an undefined static method App\Models\WebhookEndpoint::create().'
+			identifier: staticMethod.notFound
+			count: 2
+			path: tests/Feature/Webhooks/WebhookTest.php

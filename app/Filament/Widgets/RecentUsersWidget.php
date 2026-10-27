@@ -23,7 +23,8 @@ class RecentUsersWidget extends BaseWidget
     public function table(Table $table): Table
     {
         return $table
-            ->query(User::query()->latest()->limit(8))
+            ->query(User::query()->latest())
+            ->defaultPaginationPageOption(8)
             ->paginated(false)
             ->columns([
                 TextColumn::make('name')
