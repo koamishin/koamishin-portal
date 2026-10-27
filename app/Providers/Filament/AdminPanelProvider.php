@@ -4,13 +4,9 @@ namespace App\Providers\Filament;
 
 use AlizHarb\ActivityLog\ActivityLogPlugin;
 use App\Filament\Pages\Auth\EditProfile;
+use App\Filament\Pages\Dashboard;
 use App\Filament\Pages\Tenancy\EditTenantProfile;
 use App\Filament\Pages\Tenancy\RegisterTenant;
-use App\Filament\Widgets\AuthMethodsChartWidget;
-use App\Filament\Widgets\AuthStatsOverviewWidget;
-use App\Filament\Widgets\DashboardHeroWidget;
-use App\Filament\Widgets\RecentUsersWidget;
-use App\Filament\Widgets\UserSignupsChartWidget;
 use App\Models\Tenant;
 use BezhanSalleh\FilamentShield\FilamentShieldPlugin;
 use Filament\Actions\Action;
@@ -20,7 +16,6 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
-use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
@@ -78,13 +73,7 @@ class AdminPanelProvider extends PanelProvider
                 Dashboard::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
-            ->widgets([
-                DashboardHeroWidget::class,
-                AuthStatsOverviewWidget::class,
-                UserSignupsChartWidget::class,
-                AuthMethodsChartWidget::class,
-                RecentUsersWidget::class,
-            ])
+            ->widgets([])
             ->plugins([
                 FilamentShieldPlugin::make()
                     ->gridColumns([
