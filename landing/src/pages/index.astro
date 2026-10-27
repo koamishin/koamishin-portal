@@ -1,4 +1,5 @@
 ---
+const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
 const appUrl = (import.meta.env.PUBLIC_APP_URL || 'http://localhost:8000').replace(/\/$/, '');
 const loginUrl = `${appUrl}/login`;
 const questions = [
@@ -17,14 +18,14 @@ const questions = [
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Koamishin Portal brings account access and connected applications together in one identity portal." />
     <meta name="theme-color" content="#f5f4ee" />
-    <link rel="icon" type="image/svg+xml" href="/koamishin-logo.svg" />
+    <link rel="icon" type="image/svg+xml" href={`${base}/koamishin-logo.svg`} />
     <title>Koamishin Portal | A place for your account</title>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
     <header class="header shell">
-      <a class="brand" href="/" aria-label="Koamishin Portal home"><img src="/koamishin-logo.svg" alt="" width="36" height="36" /><span>koamishin<span class="brand-light"> / portal</span></span></a>
-      <nav aria-label="Main navigation"><a href="#about">About</a><a href="#questions">Questions</a><a class="docs-link" href="/docs/">Documentation</a><a class="nav-link" href={loginUrl}>Sign in <span aria-hidden="true">↗</span></a></nav>
+      <a class="brand" href={`${base}/`} aria-label="Koamishin Portal home"><img src={`${base}/koamishin-logo.svg`} alt="" width="36" height="36" /><span>koamishin<span class="brand-light"> / portal</span></span></a>
+      <nav aria-label="Main navigation"><a href="#about">About</a><a href="#questions">Questions</a><a class="docs-link" href={`${base}/docs/`}>Documentation</a><a class="nav-link" href={loginUrl}>Sign in <span aria-hidden="true">↗</span></a></nav>
     </header>
     <main id="main">
       <section class="hero shell" aria-labelledby="hero-title">
@@ -56,7 +57,7 @@ const questions = [
       <section id="questions" class="faq shell"><div class="section-label"><span>02 / GOOD TO KNOW</span><span>QUESTIONS &amp; ANSWERS</span></div><div class="faq-grid"><div><h2>A little more<br />about the portal.</h2><p>What you can use depends on the settings chosen by your administrator.</p></div><div class="faq-list">{questions.map(([question, answer]) => <details><summary>{question}<span aria-hidden="true">+</span></summary><p>{answer}</p></details>)}</div></div></section>
       <section class="closing shell"><div><p class="eyebrow">READY WHEN YOU ARE</p><h2>Your account is<br />a click away.</h2></div><a class="button button-light" href={loginUrl}>Sign in to the portal <span aria-hidden="true">↗</span></a></section>
     </main>
-    <footer class="footer shell"><a class="brand" href="/"><img src="/koamishin-logo.svg" alt="" width="32" height="32" /><span>koamishin<span class="brand-light"> / portal</span></span></a><p>Account access, thoughtfully connected.</p><a href="#main">Back to top ↑</a></footer>
+    <footer class="footer shell"><a class="brand" href={`${base}/`}><img src={`${base}/koamishin-logo.svg`} alt="" width="32" height="32" /><span>koamishin<span class="brand-light"> / portal</span></span></a><p>Account access, thoughtfully connected.</p><a href="#main">Back to top ↑</a></footer>
   </body>
 </html>
 <style>

@@ -7,6 +7,7 @@ export async function getStaticPaths() {
 }
 
 const { page, pages } = Astro.props;
+const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
 const sections = [
   { label: 'Start here', items: pages.filter((item) => item.source === 'docs/index.mdx' || item.source === 'docs/architecture.mdx') },
   { label: 'Getting started', items: pages.filter((item) => item.source.startsWith('docs/getting-started/')) },
@@ -23,14 +24,14 @@ const section = sections.find((group) => group.items.some((item) => item.source 
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={page.description || `Documentation for ${page.title}.`} />
     <meta name="theme-color" content="#f5f4ee" />
-    <link rel="icon" type="image/svg+xml" href="/koamishin-logo.svg" />
+    <link rel="icon" type="image/svg+xml" href={`${base}/koamishin-logo.svg`} />
     <title>{page.title} | Koamishin documentation</title>
   </head>
   <body>
     <a class="skip" href="#main">Skip to content</a>
     <header class="header shell">
-      <a class="brand" href="/"><img src="/koamishin-logo.svg" alt="" width="36" height="36" /><span>koamishin<span class="brand-light"> / portal</span></span></a>
-      <nav aria-label="Main navigation"><a href="/">Home</a><a class="current" href="/docs/" aria-current="page">Documentation <span aria-hidden="true">↗</span></a></nav>
+      <a class="brand" href={`${base}/`}><img src={`${base}/koamishin-logo.svg`} alt="" width="36" height="36" /><span>koamishin<span class="brand-light"> / portal</span></span></a>
+      <nav aria-label="Main navigation"><a href={`${base}/`}>Home</a><a class="current" href={`${base}/docs/`} aria-current="page">Documentation <span aria-hidden="true">↗</span></a></nav>
     </header>
     <div class="shell layout">
       <aside class="sidebar">
@@ -44,12 +45,12 @@ const section = sections.find((group) => group.items.some((item) => item.source 
         </details>
       </aside>
       <main id="main" class="main">
-        <div class="breadcrumb"><a href="/docs/">Documentation</a><span aria-hidden="true"> / </span><span>{section?.label}</span></div>
+        <div class="breadcrumb"><a href={`${base}/docs/`}>Documentation</a><span aria-hidden="true"> / </span><span>{section?.label}</span></div>
         <article class="prose" set:html={page.html} />
         <div class="page-end"><span>KOAMISHIN / DOCUMENTATION</span><a href="#main">Back to top ↑</a></div>
       </main>
     </div>
-    <footer class="footer shell"><span>Account access, thoughtfully connected.</span><a href="/">Back to the portal home ↗</a></footer>
+    <footer class="footer shell"><span>Account access, thoughtfully connected.</span><a href={`${base}/`}>Back to the portal home ↗</a></footer>
   </body>
 </html>
 <style is:global>

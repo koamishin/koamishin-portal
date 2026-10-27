@@ -31,6 +31,11 @@ const publicFiles = [
   'packages/koamishin-auth-php/LICENSE',
 ];
 
+function getBase() {
+  const base = process.env.ASTRO_BASE || (process.env.GITHUB_ACTIONS ? '/koamishin-portal' : '');
+  return base.replace(/\/+$/, '');
+}
+
 function pageSlug(source) {
   if (source === 'docs/index.mdx') return '';
   if (source.startsWith('docs/')) return source.slice(5, -4);
@@ -39,7 +44,8 @@ function pageSlug(source) {
 
 function pageUrl(source) {
   const slug = pageSlug(source);
-  return `/docs/${slug ? `${slug}/` : ''}`;
+  const base = getBase();
+  return `${base}/docs/${slug ? `${slug}/` : ''}`;
 }
 
 function rewriteLinks(source, pageSet, fileSet) {
@@ -49,8 +55,9 @@ function rewriteLinks(source, pageSet, fileSet) {
         const match = node.url.match(/^([^?#]*)([?#].*)?$/);
         const target = path.posix.normalize(path.posix.join(path.posix.dirname(source), decodeURIComponent(match[1])));
         const suffix = match[2] || '';
+        const base = getBase();
         if (pageSet.has(target)) node.url = `${pageUrl(target)}${suffix}`;
-        else if (fileSet.has(target)) node.url = `/docs/files/${target}${suffix}`;
+        else if (fileSet.has(target)) node.url = `${base}/docs/files/${target}${suffix}`;
         else throw new Error(`Unmapped documentation link in ${source}: ${node.url}`);
       }
       if (node.children) node.children.forEach(visit);
