@@ -52,6 +52,7 @@
                 <div class="flex flex-wrap items-center gap-2.5">
                     {{ $this->getAction('createUser') }}
                     {{ $this->getAction('createApplication') }}
+                    {{ $this->getAction('importUsers') }}
                 </div>
             </div>
 

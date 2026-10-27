@@ -10,14 +10,18 @@ use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
 use App\Models\WebhookDelivery;
+use App\Services\Users\LaravelUserImporter;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
+use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Notifications\Notification;
 use Filament\Pages\Dashboard as BaseDashboard;
+use Filament\Schemas\Components\Utilities\Get;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -114,9 +118,10 @@ class Dashboard extends BaseDashboard
                     }
 
                     $currentApp = $this->getActiveApplication();
-                    if ($currentApp instanceof \App\Models\TenantApplication) {
+                    if ($currentApp instanceof TenantApplication) {
                         $currentApp->users()->syncWithoutDetaching([
                             $newUser->id => [
+                                'environment' => $currentApp->environment,
                                 'role' => $data['role'],
                                 'last_sign_in_at' => now(),
                             ],
@@ -209,6 +214,152 @@ class Dashboard extends BaseDashboard
                         ->success()
                         ->send();
                 }),
+
+            Action::make('importUsers')
+                ->label('Import Users')
+                ->icon('heroicon-m-arrow-down-tray')
+                ->color('gray')
+                ->modalHeading('Import Users from Other Laravel Applications')
+                ->modalDescription('Seamlessly import users from existing Laravel apps, JSON exports, CSV files, or direct database queries. Bcrypt & Argon2 password hashes are preserved so imported users can log in without resetting passwords.')
+                ->schema([
+                    Select::make('source_type')
+                        ->label('Import Method')
+                        ->options([
+                            'json' => 'JSON Format (e.g. User::all()->toJson())',
+                            'csv' => 'CSV Format (name, email, password, role)',
+                            'database' => 'Direct External Database Connection',
+                        ])
+                        ->default('json')
+                        ->live()
+                        ->required(),
+
+                    Select::make('environment')
+                        ->label('Target Environment')
+                        ->options([
+                            'development' => 'Development (Sandbox Users)',
+                            'production' => 'Production (Live Users)',
+                        ])
+                        ->default(fn (): string => ($app = $this->getActiveApplication()) ? $app->environment : 'development')
+                        ->required(),
+
+                    Textarea::make('content')
+                        ->label('JSON or CSV Payload')
+                        ->placeholder('[{"name": "Jane Doe", "email": "jane@company.com", "password": "$2y$12$..."}]')
+                        ->rows(8)
+                        ->visible(fn (Get $get): bool => in_array($get('source_type'), ['json', 'csv'], true)),
+
+                    Select::make('db_driver')
+                        ->label('Database Driver')
+                        ->options([
+                            'mysql' => 'MySQL / MariaDB',
+                            'pgsql' => 'PostgreSQL',
+                            'sqlite' => 'SQLite',
+                        ])
+                        ->default('mysql')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_host')
+                        ->label('Database Host')
+                        ->default('127.0.0.1')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_port')
+                        ->label('Port')
+                        ->default('3306')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_name')
+                        ->label('Database Name')
+                        ->placeholder('main_database')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_username')
+                        ->label('Username')
+                        ->default('root')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_password')
+                        ->label('Password')
+                        ->password()
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    TextInput::make('db_table')
+                        ->label('Users Table')
+                        ->default('users')
+                        ->visible(fn (Get $get): bool => $get('source_type') === 'database'),
+
+                    Toggle::make('auto_verify')
+                        ->label('Auto-verify imported email addresses')
+                        ->default(true),
+
+                    Toggle::make('update_existing')
+                        ->label('Update details if user email already exists')
+                        ->default(true),
+                ])
+                ->action(function (array $data): void {
+                    $tenant = $this->getActiveTenant();
+                    if (! $tenant instanceof Tenant) {
+                        return;
+                    }
+
+                    $application = $this->getActiveApplication();
+                    $environment = (string) ($data['environment'] ?? 'development');
+
+                    $options = [
+                        'auto_verify' => (bool) ($data['auto_verify'] ?? false),
+                        'update_existing' => (bool) ($data['update_existing'] ?? true),
+                    ];
+
+                    $importer = new LaravelUserImporter;
+
+                    if ($data['source_type'] === 'json') {
+                        $result = $importer->importFromJson(
+                            (string) ($data['content'] ?? ''),
+                            $tenant,
+                            $application,
+                            $environment,
+                            $options
+                        );
+                    } elseif ($data['source_type'] === 'csv') {
+                        $result = $importer->importFromCsv(
+                            (string) ($data['content'] ?? ''),
+                            $tenant,
+                            $application,
+                            $environment,
+                            $options
+                        );
+                    } else {
+                        $result = $importer->importFromDatabase(
+                            [
+                                'driver' => (string) ($data['db_driver'] ?? 'mysql'),
+                                'host' => (string) ($data['db_host'] ?? '127.0.0.1'),
+                                'port' => (string) ($data['db_port'] ?? '3306'),
+                                'database' => (string) ($data['db_name'] ?? ''),
+                                'username' => (string) ($data['db_username'] ?? ''),
+                                'password' => (string) ($data['db_password'] ?? ''),
+                                'table' => (string) ($data['db_table'] ?? 'users'),
+                            ],
+                            $tenant,
+                            $application,
+                            $environment,
+                            $options
+                        );
+                    }
+
+                    if (! empty($result['errors'])) {
+                        Notification::make()
+                            ->title('Import Completed with Warnings')
+                            ->body("Imported: {$result['imported']}, Updated: {$result['updated']}, Skipped: {$result['skipped']}. Errors: ".implode('; ', array_slice($result['errors'], 0, 3)))
+                            ->warning()
+                            ->send();
+                    } else {
+                        Notification::make()
+                            ->title('Import Successful')
+                            ->body("Successfully imported {$result['imported']} users into {$environment} environment.")
+                            ->success()
+                            ->send();
+                    }
+                }),
         ];
     }
 
@@ -244,9 +395,11 @@ class Dashboard extends BaseDashboard
     public function getStatsProperty(): array
     {
         $app = $this->getActiveApplication();
-        $userQuery = $app instanceof \App\Models\TenantApplication
-            ? $app->users()
-            : ($this->getActiveTenant() instanceof \App\Models\Tenant ? $this->getActiveTenant()->users() : User::query());
+        $env = $app ? $app->environment : 'development';
+
+        $userQuery = $app instanceof TenantApplication
+            ? $app->users($env)
+            : ($this->getActiveTenant() instanceof Tenant ? $this->getActiveTenant()->users() : User::query());
 
         $totalUsers = (clone $userQuery)->count();
         $bannedUsers = (clone $userQuery)->whereNotNull('users.banned_at')->count();
@@ -282,9 +435,11 @@ class Dashboard extends BaseDashboard
     public function getPagedUsers(): LengthAwarePaginator
     {
         $app = $this->getActiveApplication();
-        $query = $app instanceof \App\Models\TenantApplication
-            ? $app->users()
-            : ($this->getActiveTenant() instanceof \App\Models\Tenant ? $this->getActiveTenant()->users() : User::query());
+        $env = $app ? $app->environment : 'development';
+
+        $query = $app instanceof TenantApplication
+            ? $app->users($env)
+            : ($this->getActiveTenant() instanceof Tenant ? $this->getActiveTenant()->users() : User::query());
 
         return $query
             ->when($this->search !== '', function (Builder $query): void {

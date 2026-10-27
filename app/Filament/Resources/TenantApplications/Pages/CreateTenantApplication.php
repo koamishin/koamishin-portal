@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Filament\Resources\TenantApplications\Pages;
 
 use App\Filament\Resources\TenantApplications\TenantApplicationResource;
+use App\Models\TenantApplication;
 use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Support\Str;
@@ -39,6 +40,38 @@ class CreateTenantApplication extends CreateRecord
         }
 
         return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        /** @var TenantApplication $app */
+        $app = $this->record;
+
+        // Initialize development environment
+        $app->getEnvironmentConfig('development');
+
+        // Provision production environment with isolated client
+        $prodSecret = Str::random(40);
+        $prodClient = new Client;
+        $prodClient->forceFill([
+            'name' => "{$app->name} (Production)",
+            'secret' => $prodSecret,
+            'redirect_uris' => [],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ])->save();
+
+        $app->environments()->create([
+            'environment' => 'production',
+            'oauth_client_id' => (string) $prodClient->getKey(),
+            'redirect_uris' => [],
+            'settings' => [
+                'allow_signups' => true,
+                'require_email_verification' => true,
+                'enforce_mfa' => true,
+                'session_lifetime_minutes' => 120,
+            ],
+        ]);
     }
 
     #[\Override]

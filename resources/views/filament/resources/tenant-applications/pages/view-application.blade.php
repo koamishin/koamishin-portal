@@ -46,6 +46,14 @@
 
             <!-- Action buttons -->
             <div class="flex items-center gap-2.5" x-data="{ copied: false }">
+                <a
+                    href="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => $isProd ? 'development' : 'production']) }}"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-white/10 shadow-xs transition-colors"
+                >
+                    <x-filament::icon icon="heroicon-m-arrow-path" class="w-3.5 h-3.5 text-gray-500" />
+                    Switch to {{ $isProd ? 'Development' : 'Production' }}
+                </a>
+
                 <button
                     type="button"
                     @click="navigator.clipboard.writeText('{{ $app->oauth_client_id }}'); copied = true; setTimeout(() => copied = false, 2000)"
@@ -59,13 +67,13 @@
 
                 @if(! $isProd)
                     <a
-                        href="{{ \App\Filament\Resources\TenantApplications\TenantApplicationResource::getUrl('edit', ['record' => $app]) }}"
-                        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-primary-600 hover:bg-primary-500 text-white shadow-xs transition-colors"
+                        href="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => 'production']) }}"
+                        class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition-colors"
                     >
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                         </svg>
-                        Go to prod
+                        Promote to prod
                     </a>
                 @endif
             </div>
@@ -248,15 +256,22 @@
         <div class="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-gray-900 overflow-hidden shadow-xs">
             <div class="p-5 border-b border-gray-100 dark:border-white/5 flex items-center justify-between">
                 <div>
-                    <h2 class="text-sm font-bold text-gray-900 dark:text-white tracking-tight">Active Users</h2>
-                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Users authenticated across this system</p>
+                    <h2 class="text-sm font-bold text-gray-900 dark:text-white tracking-tight">Active Users ({{ ucfirst($app->environment) }})</h2>
+                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                        {{ $app->environment === 'production' ? 'Production users enrolled in live authentication' : 'Sandbox development users isolated from production' }}
+                    </p>
                 </div>
-                <a
-                    href="{{ \App\Filament\Resources\Users\UserResource::getUrl('index') }}"
-                    class="text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline inline-flex items-center gap-1"
-                >
-                    View all users →
-                </a>
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-gray-400">
+                        {{ $users->count() }} enrolled
+                    </span>
+                    <a
+                        href="{{ \App\Filament\Resources\Users\UserResource::getUrl('index') }}"
+                        class="text-xs font-semibold text-primary-600 dark:text-primary-400 hover:underline inline-flex items-center gap-1"
+                    >
+                        View all directory →
+                    </a>
+                </div>
             </div>
 
             <div class="divide-y divide-gray-100 dark:divide-white/5">

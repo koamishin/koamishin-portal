@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 use Laravel\Passport\Client;
 
@@ -64,11 +65,85 @@ class TenantApplication extends Model
     /**
      * @return BelongsToMany<User, $this>
      */
-    public function users(): BelongsToMany
+    public function users(?string $environment = null): BelongsToMany
     {
-        return $this->belongsToMany(User::class, 'tenant_application_user')
-            ->withPivot(['role', 'last_sign_in_at'])
+        $relation = $this->belongsToMany(User::class, 'tenant_application_user')
+            ->withPivot(['role', 'environment', 'last_sign_in_at'])
             ->withTimestamps();
+
+        if ($environment !== null) {
+            $relation->wherePivot('environment', $environment);
+        }
+
+        return $relation;
+    }
+
+    /**
+     * @return HasMany<TenantApplicationEnvironment, $this>
+     */
+    public function environments(): HasMany
+    {
+        return $this->hasMany(TenantApplicationEnvironment::class);
+    }
+
+    /**
+     * Get or create the configuration for a specific environment.
+     */
+    public function getEnvironmentConfig(?string $environment = null): TenantApplicationEnvironment
+    {
+        $env = $environment ?? $this->environment;
+
+        /** @var TenantApplicationEnvironment $config */
+        $config = $this->environments()->firstOrCreate(
+            ['environment' => $env],
+            [
+                'oauth_client_id' => $this->oauth_client_id,
+                'redirect_uris' => $this->redirect_uris,
+                'settings' => [
+                    'allow_signups' => true,
+                    'require_email_verification' => $env === 'production',
+                    'enforce_mfa' => $env === 'production',
+                    'session_lifetime_minutes' => $env === 'production' ? 120 : 1440,
+                ],
+            ]
+        );
+
+        return $config;
+    }
+
+    public function getEnvSnippet(?string $environment = null): string
+    {
+        $env = $environment ?? $this->environment;
+        $portalUrl = rtrim((string) config('app.url'), '/');
+        $config = $this->getEnvironmentConfig($env);
+        $clientId = $config->oauth_client_id ?? $this->oauth_client_id ?? 'your-client-id';
+        $callback = $config->redirect_uris[0] ?? $this->redirect_uris[0] ?? "{$portalUrl}/callback";
+
+        if ($this->framework === 'laravel') {
+            return <<<ENV
+KOAMISHIN_PORTAL_URL={$portalUrl}
+KOAMISHIN_ENVIRONMENT={$env}
+KOAMISHIN_CLIENT_ID={$clientId}
+KOAMISHIN_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
+KOAMISHIN_REDIRECT_URI={$callback}
+ENV;
+        }
+
+        if ($this->framework === 'nextjs') {
+            return <<<ENV
+NEXT_PUBLIC_KOAMISHIN_PORTAL_URL={$portalUrl}
+NEXT_PUBLIC_KOAMISHIN_ENVIRONMENT={$env}
+NEXT_PUBLIC_KOAMISHIN_CLIENT_ID={$clientId}
+NEXT_PUBLIC_KOAMISHIN_REDIRECT_URI={$callback}
+ENV;
+        }
+
+        return <<<ENV
+VITE_KOAMISHIN_PORTAL_URL={$portalUrl}
+VITE_KOAMISHIN_ENVIRONMENT={$env}
+VITE_KOAMISHIN_CLIENT_ID={$clientId}
+VITE_KOAMISHIN_REDIRECT_URI={$callback}
+ENV;
     }
 
     /**
@@ -124,36 +199,6 @@ class TenantApplication extends Model
             'nextjs', 'vue', 'react' => 'npm install @koamishin/auth-js',
             default => 'npm install @koamishin/auth-js',
         };
-    }
-
-    public function getEnvSnippet(): string
-    {
-        $portalUrl = rtrim(config('app.url'), '/');
-        $clientId = $this->oauth_client_id ?? 'your-client-id';
-        $callback = $this->redirect_uris[0] ?? "{$portalUrl}/callback";
-
-        if ($this->framework === 'laravel') {
-            return <<<ENV
-KOAMISHIN_PORTAL_URL={$portalUrl}
-KOAMISHIN_CLIENT_ID={$clientId}
-KOAMISHIN_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
-KOAMISHIN_REDIRECT_URI={$callback}
-ENV;
-        }
-
-        if ($this->framework === 'nextjs') {
-            return <<<ENV
-NEXT_PUBLIC_KOAMISHIN_PORTAL_URL={$portalUrl}
-NEXT_PUBLIC_KOAMISHIN_CLIENT_ID={$clientId}
-NEXT_PUBLIC_KOAMISHIN_REDIRECT_URI={$callback}
-ENV;
-        }
-
-        return <<<ENV
-VITE_KOAMISHIN_PORTAL_URL={$portalUrl}
-VITE_KOAMISHIN_CLIENT_ID={$clientId}
-VITE_KOAMISHIN_REDIRECT_URI={$callback}
-ENV;
     }
 
     public function getSetupGuideCode(): string
