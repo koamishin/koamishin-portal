@@ -14,6 +14,8 @@ use Filament\Widgets\TableWidget as BaseWidget;
 
 class RecentUsersWidget extends BaseWidget
 {
+    protected static bool $isLazy = false;
+
     protected static ?string $heading = 'Recent Registrations';
 
     protected static ?int $sort = 4;

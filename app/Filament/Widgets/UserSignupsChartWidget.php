@@ -10,9 +10,16 @@ use Illuminate\Support\Carbon;
 
 class UserSignupsChartWidget extends ChartWidget
 {
+    protected static bool $isLazy = false;
+
     protected ?string $heading = 'User Registrations (Last 14 Days)';
 
     protected static ?int $sort = 2;
+
+    protected int|string|array $columnSpan = [
+        'md' => 1,
+        'xl' => 1,
+    ];
 
     #[\Override]
     protected function getData(): array
