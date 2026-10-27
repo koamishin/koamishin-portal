@@ -2,3 +2,62 @@
 
 @source '../../../../app/Filament/**/*';
 @source '../../../../resources/views/filament/**/*';
+@source '../../../../resources/views/**/*';
+
+/* ==========================================================================
+   Clerk-inspired Aesthetic & Polish for Koamishin Portal
+   ========================================================================== */
+
+/* Dark mode surface overrides */
+.dark body {
+    background-color: #0b0c10 !important;
+}
+
+.dark .fi-topbar {
+    background-color: rgba(14, 15, 20, 0.8) !important;
+    backdrop-filter: blur(16px) !important;
+    border-bottom: 1px solid #1f212a !important;
+}
+
+.dark .fi-sidebar {
+    background-color: #0e0f14 !important;
+    border-right: 1px solid #1e2028 !important;
+}
+
+.dark .fi-sidebar-item:hover {
+    background-color: #171821 !important;
+}
+
+.dark .fi-sidebar-item-active {
+    background-color: #1c1d27 !important;
+}
+
+.dark .fi-section,
+.dark .fi-card,
+.dark .fi-ta-ctn {
+    background-color: #13141a !important;
+    border-color: #22232c !important;
+    border-radius: 1rem !important;
+}
+
+/* Clerk Signature Purple Action Buttons */
+.dark .fi-btn-color-primary {
+    background: linear-gradient(135deg, #6c47ff 0%, #582be8 100%) !important;
+    box-shadow: 0 4px 14px rgba(108, 71, 255, 0.3) !important;
+    border: none !important;
+    font-weight: 600 !important;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.dark .fi-btn-color-primary:hover {
+    background: linear-gradient(135deg, #7b58ff 0%, #6435f2 100%) !important;
+    box-shadow: 0 6px 20px rgba(108, 71, 255, 0.45) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Tenant dropdown in header */
+.dark .fi-tenant-menu,
+.dark button[aria-haspopup='menu'] {
+    border-radius: 0.5rem !important;
+    transition: background-color 0.15s ease !important;
+}

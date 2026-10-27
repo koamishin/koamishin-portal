@@ -13,6 +13,8 @@ class ViewTenantApplication extends ViewRecord
 {
     protected static string $resource = TenantApplicationResource::class;
 
+    protected string $view = 'filament.resources.tenant-applications.pages.view-application';
+
     #[\Override]
     protected function getHeaderActions(): array
     {

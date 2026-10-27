@@ -25,6 +25,7 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
+use Filament\Tables\Columns\Layout\View;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
@@ -195,53 +196,23 @@ class TenantApplicationResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->contentGrid([
+                'default' => 1,
+                'md' => 2,
+                'xl' => 3,
+                '2xl' => 4,
+            ])
+            ->recordUrl(fn (TenantApplication $record): string => static::getUrl('view', ['record' => $record]))
             ->columns([
+                View::make('filament.tables.columns.application-card'),
                 TextColumn::make('name')
-                    ->label('Application')
-                    ->weight('bold')
                     ->searchable()
-                    ->sortable(),
-
-                TextColumn::make('tenant.name')
-                    ->label('Organization')
-                    ->badge()
-                    ->color('gray')
-                    ->searchable()
-                    ->sortable(),
-
+                    ->hidden(),
                 TextColumn::make('framework')
-                    ->label('Framework')
-                    ->badge()
-                    ->formatStateUsing(fn (TenantApplication $record): string => $record->getFrameworkLabel())
-                    ->color('info'),
-
-                TextColumn::make('environment')
-                    ->label('Environment')
-                    ->badge()
-                    ->color(fn (string $state): string => match ($state) {
-                        'production' => 'success',
-                        default => 'warning',
-                    })
-                    ->sortable(),
-
-                TextColumn::make('oauth_client_id')
-                    ->label('Client ID')
-                    ->fontFamily('mono')
-                    ->limit(15)
-                    ->copyable()
-                    ->searchable(),
-
-                TextColumn::make('created_at')
-                    ->label('Created')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->searchable()
+                    ->hidden(),
             ])
             ->filters([
-                SelectFilter::make('tenant_id')
-                    ->label('Organization')
-                    ->relationship('tenant', 'name'),
-
                 SelectFilter::make('environment')
                     ->options([
                         'development' => 'Development',
