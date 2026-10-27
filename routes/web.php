@@ -65,7 +65,7 @@ Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{applica
     ]));
 })->name('filament.admin.switch-application');
 
-Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment) {
+Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment): \Illuminate\Http\RedirectResponse {
     if ($application->tenant_id !== $tenant->id) {
         abort(403);
     }

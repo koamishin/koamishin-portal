@@ -114,7 +114,7 @@ class Dashboard extends BaseDashboard
                     }
 
                     $currentApp = $this->getActiveApplication();
-                    if ($currentApp) {
+                    if ($currentApp instanceof \App\Models\TenantApplication) {
                         $currentApp->users()->syncWithoutDetaching([
                             $newUser->id => [
                                 'role' => $data['role'],
@@ -244,9 +244,9 @@ class Dashboard extends BaseDashboard
     public function getStatsProperty(): array
     {
         $app = $this->getActiveApplication();
-        $userQuery = $app
+        $userQuery = $app instanceof \App\Models\TenantApplication
             ? $app->users()
-            : ($this->getActiveTenant() ? $this->getActiveTenant()->users() : User::query());
+            : ($this->getActiveTenant() instanceof \App\Models\Tenant ? $this->getActiveTenant()->users() : User::query());
 
         $totalUsers = (clone $userQuery)->count();
         $bannedUsers = (clone $userQuery)->whereNotNull('users.banned_at')->count();
@@ -282,9 +282,9 @@ class Dashboard extends BaseDashboard
     public function getPagedUsers(): LengthAwarePaginator
     {
         $app = $this->getActiveApplication();
-        $query = $app
+        $query = $app instanceof \App\Models\TenantApplication
             ? $app->users()
-            : ($this->getActiveTenant() ? $this->getActiveTenant()->users() : User::query());
+            : ($this->getActiveTenant() instanceof \App\Models\Tenant ? $this->getActiveTenant()->users() : User::query());
 
         return $query
             ->when($this->search !== '', function (Builder $query): void {
