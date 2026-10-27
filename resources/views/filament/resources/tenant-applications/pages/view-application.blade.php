@@ -2,7 +2,7 @@
     $app = $this->getRecord();
     $tenant = $app->tenant;
     $isProd = $app->environment === 'production';
-    $users = \App\Models\User::query()->latest()->limit(5)->get();
+    $users = $app->users()->latest('tenant_application_user.created_at')->limit(8)->get();
 @endphp
 
 <x-filament-panels::page>

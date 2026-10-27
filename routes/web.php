@@ -54,10 +54,27 @@ Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{applica
     }
     session(['current_application_id' => $application->id]);
 
+    $referer = request()->header('referer');
+    if ($referer && ! str_contains($referer, 'tenant-applications/')) {
+        return redirect()->to($referer);
+    }
+
     return redirect()->to(TenantApplicationResource::getUrl('view', [
         'record' => $application,
         'tenant' => $tenant,
     ]));
 })->name('filament.admin.switch-application');
+
+Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment) {
+    if ($application->tenant_id !== $tenant->id) {
+        abort(403);
+    }
+    if (! in_array($environment, ['development', 'production'], true)) {
+        abort(400);
+    }
+    $application->update(['environment' => $environment]);
+
+    return back();
+})->name('filament.admin.toggle-environment');
 
 require __DIR__.'/settings.php';

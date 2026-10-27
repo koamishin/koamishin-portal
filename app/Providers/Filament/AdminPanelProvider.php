@@ -43,9 +43,10 @@ class AdminPanelProvider extends PanelProvider
                 fn (): string => Blade::render('@include("impersonate-banner")'),
             )
             ->renderHook(
-                PanelsRenderHook::TENANT_MENU_AFTER,
-                fn (): string => Blade::render('@include("filament.components.application-menu")'),
+                PanelsRenderHook::TOPBAR_LOGO_AFTER,
+                fn (): string => Blade::render('@include("filament.components.topbar-context-selector")'),
             )
+            ->tenantMenu(false)
             ->databaseNotifications()
             ->login()
             ->colors([

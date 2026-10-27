@@ -166,6 +166,16 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     }
 
     /**
+     * @return BelongsToMany<TenantApplication, $this>
+     */
+    public function applications(): BelongsToMany
+    {
+        return $this->belongsToMany(TenantApplication::class, 'tenant_application_user')
+            ->withPivot(['role', 'last_sign_in_at'])
+            ->withTimestamps();
+    }
+
+    /**
      * @return Collection<int, Model>
      */
     public function getTenants(Panel $panel): Collection

@@ -8,6 +8,7 @@ use Filament\Facades\Filament;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 use Laravel\Passport\Client;
 
@@ -58,6 +59,16 @@ class TenantApplication extends Model
     public function oauthClient(): BelongsTo
     {
         return $this->belongsTo(Client::class, 'oauth_client_id');
+    }
+
+    /**
+     * @return BelongsToMany<User, $this>
+     */
+    public function users(): BelongsToMany
+    {
+        return $this->belongsToMany(User::class, 'tenant_application_user')
+            ->withPivot(['role', 'last_sign_in_at'])
+            ->withTimestamps();
     }
 
     /**

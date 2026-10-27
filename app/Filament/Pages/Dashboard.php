@@ -113,6 +113,16 @@ class Dashboard extends BaseDashboard
                         $newUser->tenants()->syncWithoutDetaching([$tenant->id => ['role' => 'member']]);
                     }
 
+                    $currentApp = $this->getActiveApplication();
+                    if ($currentApp) {
+                        $currentApp->users()->syncWithoutDetaching([
+                            $newUser->id => [
+                                'role' => $data['role'],
+                                'last_sign_in_at' => now(),
+                            ],
+                        ]);
+                    }
+
                     Notification::make()
                         ->title('User Created')
                         ->body("{$newUser->name} ({$newUser->email}) added successfully.")
@@ -221,7 +231,7 @@ class Dashboard extends BaseDashboard
     {
         $tenant = $this->getActiveTenant();
 
-        if (!$tenant instanceof \App\Models\Tenant) {
+        if (! $tenant instanceof Tenant) {
             return collect();
         }
 
@@ -233,15 +243,21 @@ class Dashboard extends BaseDashboard
      */
     public function getStatsProperty(): array
     {
-        $totalUsers = User::query()->count();
-        $bannedUsers = User::query()->whereNotNull('banned_at')->count();
-        $unverifiedUsers = User::query()->whereNull('email_verified_at')->count();
+        $app = $this->getActiveApplication();
+        $userQuery = $app
+            ? $app->users()
+            : ($this->getActiveTenant() ? $this->getActiveTenant()->users() : User::query());
+
+        $totalUsers = (clone $userQuery)->count();
+        $bannedUsers = (clone $userQuery)->whereNotNull('users.banned_at')->count();
+        $unverifiedUsers = (clone $userQuery)->whereNull('users.email_verified_at')->count();
         $activeUsers = max(0, $totalUsers - $bannedUsers);
 
-        $activeSessions = DB::table('sessions')->whereNotNull('user_id')->count();
+        $userIds = (clone $userQuery)->pluck('users.id');
+        $activeSessions = DB::table('sessions')->whereIn('user_id', $userIds)->count();
 
         $tenant = $this->getActiveTenant();
-        $totalApps = $tenant instanceof \App\Models\Tenant ? $tenant->applications()->count() : 0;
+        $totalApps = $tenant instanceof Tenant ? $tenant->applications()->count() : 0;
 
         $deliveriesTotal = WebhookDelivery::query()->count();
         $deliveriesSuccess = WebhookDelivery::query()->where('status', 'delivered')->count();
@@ -265,18 +281,23 @@ class Dashboard extends BaseDashboard
      */
     public function getPagedUsers(): LengthAwarePaginator
     {
-        return User::query()
+        $app = $this->getActiveApplication();
+        $query = $app
+            ? $app->users()
+            : ($this->getActiveTenant() ? $this->getActiveTenant()->users() : User::query());
+
+        return $query
             ->when($this->search !== '', function (Builder $query): void {
                 $query->where(function (Builder $sub): void {
-                    $sub->where('name', 'like', "%{$this->search}%")
-                        ->orWhere('email', 'like', "%{$this->search}%");
+                    $sub->where('users.name', 'like', "%{$this->search}%")
+                        ->orWhere('users.email', 'like', "%{$this->search}%");
                 });
             })
-            ->when($this->statusFilter === 'active', fn (Builder $q) => $q->whereNull('banned_at'))
-            ->when($this->statusFilter === 'banned', fn (Builder $q) => $q->whereNotNull('banned_at'))
-            ->when($this->statusFilter === 'unverified', fn (Builder $q) => $q->whereNull('email_verified_at'))
+            ->when($this->statusFilter === 'active', fn (Builder $q) => $q->whereNull('users.banned_at'))
+            ->when($this->statusFilter === 'banned', fn (Builder $q) => $q->whereNotNull('users.banned_at'))
+            ->when($this->statusFilter === 'unverified', fn (Builder $q) => $q->whereNull('users.email_verified_at'))
             ->with(['roles', 'socialAccounts', 'passkeys'])
-            ->latest()
+            ->latest('users.created_at')
             ->paginate(8);
     }
 
