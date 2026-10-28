@@ -37,7 +37,7 @@ class EnsureOAuthApplicationAccess
         }
 
         $environment = $this->access->environmentForClient($clientId);
-        if (! $environment) {
+        if (!$environment instanceof \App\Models\TenantApplicationEnvironment) {
             abort(403);
         }
 

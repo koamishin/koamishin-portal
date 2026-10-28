@@ -93,7 +93,7 @@ class OpenIdConnectController extends Controller
         }
 
         $environment = $access->environmentForClient($token->oauth_client_id);
-        if (! $environment || ! $access->allows($environment, $user)) {
+        if (! $environment instanceof \App\Models\TenantApplicationEnvironment || ! $access->allows($environment, $user)) {
             abort(403);
         }
 

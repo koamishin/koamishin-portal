@@ -199,7 +199,7 @@ test('import rejects an application owned by a different organization', function
         'name' => 'Other app', 'framework' => 'laravel', 'environment' => 'development', 'redirect_uris' => [],
     ]);
 
-    expect(fn () => (new LaravelUserImporter)->importFromData(
+    expect(fn (): array => (new LaravelUserImporter)->importFromData(
         [['name' => 'Member', 'email' => 'member@example.test']], $tenant, $application
     ))->toThrow(InvalidArgumentException::class);
     expect(User::query()->where('email', 'member@example.test')->exists())->toBeFalse();
