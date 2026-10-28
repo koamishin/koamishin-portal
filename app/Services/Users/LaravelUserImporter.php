@@ -30,6 +30,11 @@ class LaravelUserImporter
         string $environment = 'development',
         array $options = [],
     ): array {
+        if (! in_array($environment, ['development', 'production'], true)
+            || ($application instanceof TenantApplication && $application->tenant_id !== $tenant->id)) {
+            throw new \InvalidArgumentException('The application and environment must belong to the selected organization.');
+        }
+
         $defaultRoleName = $options['default_role'] ?? 'user';
         $autoVerify = (bool) ($options['auto_verify'] ?? false);
         $updateExisting = (bool) ($options['update_existing'] ?? true);
@@ -83,7 +88,7 @@ class LaravelUserImporter
                         if ($autoVerify && $existingUser->email_verified_at === null) {
                             $updateData['email_verified_at'] = now();
                         }
-                        $existingUser->update($updateData);
+                        $existingUser->forceFill($updateData)->save();
                         $updated++;
                     } else {
                         $skipped++;
@@ -95,29 +100,35 @@ class LaravelUserImporter
                         'name' => $name,
                         'email' => $email,
                         'password' => $passwordHash,
-                        'email_verified_at' => $emailVerifiedAt,
                     ]);
+                    $user->forceFill(['email_verified_at' => $emailVerifiedAt])->save();
 
                     $user->assignRole($defaultRole);
 
-                    WebhookDispatcher::dispatch('user.created', WebhookDispatcher::userPayload($user));
                     $imported++;
                 }
 
                 // 1. Link to Organization (Tenant)
-                $tenant->users()->syncWithoutDetaching([
-                    $user->id => ['role' => 'member'],
-                ]);
+                $tenant->users()->syncWithoutDetaching([$user->id]);
 
                 // 2. Link to Application with Environment
                 if ($application instanceof TenantApplication) {
-                    $application->users()->syncWithoutDetaching([
-                        $user->id => [
-                            'environment' => $environment,
-                            'role' => $row['role'] ?? 'member',
-                            'last_sign_in_at' => now(),
-                        ],
+                    $alreadyEnrolled = $application->users($environment)->whereKey($user)->exists();
+                    $membershipAttributes = ['environment' => $environment];
+                    if (! $alreadyEnrolled || ($updateExisting && isset($row['role']))) {
+                        $membershipAttributes['role'] = $row['role'] ?? 'member';
+                    }
+
+                    $membership = $application->users($environment)->syncWithoutDetaching([
+                        $user->id => $membershipAttributes,
                     ]);
+
+                    if ($membership['attached'] !== []) {
+                        $configuration = $application->environments()->where('environment', $environment)->first();
+                        if ($configuration) {
+                            WebhookDispatcher::dispatchForEnvironment($configuration, 'user.created', $user);
+                        }
+                    }
                 }
             } catch (\Throwable $e) {
                 $errors[] = "Row #{$index} ({$email}): {$e->getMessage()}";

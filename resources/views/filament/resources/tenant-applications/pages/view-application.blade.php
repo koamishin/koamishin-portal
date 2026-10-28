@@ -7,6 +7,23 @@
 
 <x-filament-panels::page>
     <div class="space-y-6 max-w-7xl mx-auto -mt-2">
+        @if(session('new_app_credentials'))
+            <div role="status" class="rounded-xl border border-amber-300 bg-amber-50 p-5 text-sm text-amber-950 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-100">
+                <p class="font-semibold">Save these application credentials now</p>
+                <p class="mt-2">Client secrets are shown only once. Store them securely on the server and never put them in browser code.</p>
+                @foreach(session('new_app_credentials') as $environment => $credentials)
+                    <div class="mt-3">
+                        <p class="font-semibold">{{ ucfirst($environment) }}</p>
+                        <p class="break-all">Client ID: {{ $credentials['client_id'] }}</p>
+                        @if($credentials['secret'])
+                            <p class="break-all">Client secret: {{ $credentials['secret'] }}</p>
+                        @else
+                            <p>Public client: no client secret.</p>
+                        @endif
+                    </div>
+                @endforeach
+            </div>
+        @endif
         <!-- Top Application Sub-Header -->
         <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-xl bg-white dark:bg-gray-900 border border-gray-200 dark:border-white/10 shadow-xs">
             <div class="flex items-center gap-3.5">
@@ -46,13 +63,15 @@
 
             <!-- Action buttons -->
             <div class="flex items-center gap-2.5" x-data="{ copied: false }">
-                <a
-                    href="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => $isProd ? 'development' : 'production']) }}"
+                <form method="POST" action="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => $isProd ? 'development' : 'production']) }}">
+                    @csrf
+                <button type="submit"
                     class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-white/10 shadow-xs transition-colors"
                 >
                     <x-filament::icon icon="heroicon-m-arrow-path" class="w-3.5 h-3.5 text-gray-500" />
                     Switch to {{ $isProd ? 'Development' : 'Production' }}
-                </a>
+                </button>
+                </form>
 
                 <button
                     type="button"
@@ -66,15 +85,17 @@
                 </button>
 
                 @if(! $isProd)
-                    <a
-                        href="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => 'production']) }}"
+                    <form method="POST" action="{{ route('filament.admin.toggle-environment', ['tenant' => $tenant, 'application' => $app, 'environment' => 'production']) }}">
+                        @csrf
+                    <button type="submit"
                         class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs transition-colors"
                     >
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                         </svg>
                         Promote to prod
-                    </a>
+                    </button>
+                    </form>
                 @endif
             </div>
         </div>

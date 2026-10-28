@@ -5,9 +5,13 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\ApplicationUserMetadata;
 use App\Models\User;
+use App\Services\OAuth\ApplicationAccess;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Laravel\Passport\AccessToken;
 
 class OpenIdConnectController extends Controller
 {
@@ -78,25 +82,76 @@ class OpenIdConnectController extends Controller
     /**
      * Return authenticated user profile and identity claims.
      */
-    public function userinfo(Request $request): JsonResponse
+    public function userinfo(Request $request, ApplicationAccess $access): JsonResponse
     {
         /** @var User $user */
         $user = $request->user();
+        $token = $user->token();
 
-        return response()->json([
+        if (! $token instanceof AccessToken || ($token->oauth_client_id ?? '') === '') {
+            abort(403);
+        }
+
+        $environment = $access->environmentForClient($token->oauth_client_id);
+        if (! $environment || ! $access->allows($environment, $user)) {
+            abort(403);
+        }
+
+        $application = $environment->application;
+        $claims = [
             'sub' => (string) $user->id,
-            'name' => $user->name,
-            'email' => $user->email,
-            'email_verified' => $user->hasVerifiedEmail(),
-            'preferred_username' => $user->username,
-            'phone_number' => $user->phone_number,
-            'phone_number_verified' => $user->hasVerifiedPhone(),
-            'web3_wallet' => $user->web3_wallet,
-            'metadata' => $user->metadata,
-            'picture' => $user->profile_photo_path ? url('storage/'.$user->profile_photo_path) : null,
-            'roles' => $user->getRoleNames(),
-            'permissions' => $user->getAllPermissions()->pluck('name'),
-            'updated_at' => $user->updated_at?->timestamp,
-        ]);
+            'organization_id' => (string) $application->tenant_id,
+            'application_id' => (string) $application->getKey(),
+            'environment' => $environment->environment,
+        ];
+
+        if ($token->can('profile')) {
+            $claims += [
+                'name' => $user->name,
+                'preferred_username' => $user->username,
+                'picture' => $user->profile_photo_path ? url('storage/'.$user->profile_photo_path) : null,
+                'updated_at' => $user->updated_at?->timestamp,
+            ];
+        }
+
+        if ($token->can('email')) {
+            $claims += [
+                'email' => $user->email,
+                'email_verified' => $user->hasVerifiedEmail(),
+            ];
+        }
+
+        if ($token->can('phone')) {
+            $claims += [
+                'phone_number' => $user->phone_number,
+                'phone_number_verified' => $user->hasVerifiedPhone(),
+            ];
+        }
+
+        if ($token->can('wallet')) {
+            $claims['web3_wallet'] = $user->web3_wallet;
+        }
+
+        if ($token->can('roles')) {
+            $role = DB::table('tenant_application_user')
+                ->where('tenant_application_id', $application->getKey())
+                ->where('environment', $environment->environment)
+                ->where('user_id', $user->getKey())
+                ->value('role');
+            abort_unless(is_string($role) && $role !== '', 403);
+
+            $claims['roles'] = [$role];
+            $claims['permissions'] = [];
+        }
+
+        if ($token->can('metadata:public')) {
+            $metadata = ApplicationUserMetadata::query()
+                ->where('tenant_application_environment_id', $environment->getKey())
+                ->where('user_id', $user->getKey())
+                ->first();
+            $claims['public_metadata'] = $metadata ? $metadata->public_metadata ?? (object) [] : (object) [];
+        }
+
+        return response()->json($claims);
     }
 }

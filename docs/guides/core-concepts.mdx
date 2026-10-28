@@ -1,60 +1,56 @@
 ---
-title: Tenancy and OAuth integration
-description: Work with organization records, application clients, and user webhooks.
+title: Tenancy, OAuth, and webhooks
+description: Configure application environments, authentication, and scoped event delivery.
 ---
 
-# Tenancy and OAuth integration
+# Tenancy, OAuth, and webhooks
 
-This guide explains how the Portal stores organizations and applications, how clients use Passport, and what to verify before integrating another application. First follow [installation](../getting-started/installation.mdx) to create an organization and application.
+A Portal organization contains applications. Each application has development and production configurations, separate OAuth clients, and separate application memberships. A person can belong to several organizations or applications, while retaining one underlying Portal user account.
 
-## Organizations and memberships
+## Create an application
 
-An organization is stored as a `Tenant` with a name, slug, optional domain and active flag. Users can be assigned to organizations with an owner, admin, or member role. In the admin panel, use **Organizations (Tenants)** to manage organizations and a user's **Assigned Organizations** section to manage memberships.
+1. Sign in to the admin panel as a super administrator and select an organization.
+2. Under **Applications**, create an application. Choose its framework and initial environment, and enter the exact callback URL used by the consuming application. Production callback URLs must use HTTPS.
+3. Save both environments' client IDs and any displayed client secrets immediately. Secrets are shown once; store confidential client secrets on the server. A browser client is public and has no secret.
+4. Edit the other environment before using it: its callback list starts empty. Switching environments selects that environment's client and callbacks; it does not copy users or metadata into it. The dashboard selection is stored on the application record, so administrators changing the same application can change each other's selected context.
+5. Enroll each user in both the organization and the relevant application environment. The Dashboard's **Quick Add User** and **Import Users** actions can attach users to the active application and chosen environment. An account created elsewhere is not automatically enrolled in every application.
 
-These associations are organizational records, not a complete tenant security boundary. The repository does not provide automatic tenant discovery, database switching, or enforced tenant isolation for all requests. A domain saved on a tenant does not configure DNS or TLS. Evaluate and implement the necessary authorization and data scoping before allowing mutually untrusted tenants to use the same instance.
+Laravel and Node.js applications receive confidential authorization-code clients. The browser-oriented framework selections receive public authorization-code clients. Both use the authorization-code flow; use PKCE for browser integrations. An OAuth client created separately with `passport:client` is not automatically bound to an application environment and is denied by the scoped authorization flow until provisioned and mapped correctly.
 
-## Applications and environments
+For a Laravel consuming application, continue with [the PHP SDK guide](laravel-sdk.mdx). A generated application snippet is a starting point; use an SDK version containing the features described here and test the entire flow.
 
-Under an organization, an application record stores a framework, environment, callback URLs and an associated Passport client. Its detail page offers environment and code snippets for the selected framework. Treat these snippets as starting points: published packages can differ from the client source in this checkout, and end-to-end compatibility with your Portal must be verified.
+## Authorization and claims
 
-Creating an application provisions confidential authorization-code clients. The initial client is associated with the application; a separate production client is created with an empty redirect URI list. The initial secret is flashed to the session but the repository has no display consumer, and the production secret is not displayed. Confirm a secure, working credential-provisioning process before relying on these clients.
+A mapped OAuth client must identify exactly one active application environment. During authorization and userinfo requests, the Portal checks the organization membership and the application membership for that environment. Banned users and revoked clients are denied. Userinfo also checks current access, so removing a membership prevents subsequent userinfo requests.
 
-The development and production labels and stored environment settings are not a guarantee of isolated users or enforced sign-up, email-verification, MFA, or session policies. Switching environment updates the application's environment field; it does not by itself synchronize the application's client ID and callback URLs with the chosen environment. Editing the application's callback list also does not update the Passport client. Check the actual client and registered callback URIs before each integration, and validate the full flow in a safe environment.
+| User scope | Optional userinfo claims |
+| --- | --- |
+| `profile` | Name, username, picture, and update time |
+| `email` | Email and verification status |
+| `phone` | Phone number and verification status |
+| `wallet` | Wallet address |
+| `roles` | The user's application-environment membership role; the current permissions list is empty |
+| `metadata:public` | Public metadata for this application environment |
 
-## Choose and configure an OAuth client
+`sub`, organization ID, application ID, and environment identify the context. Private metadata and the older global `users.metadata` field are not returned. The Portal's userinfo endpoints are `GET /api/oauth/userinfo` and `GET /api/user`; both now return the scoped claims shape rather than a raw user model. See [application user metadata](user-metadata.mdx) for writing and reading custom values.
 
-Register the exact callback URI used by the consuming application. Confidential server-side clients must keep their client secret on the server; never put it in browser code. For browser or mobile clients that cannot keep a secret, use a public authorization-code client with PKCE. The application creation flow above creates confidential clients, so the bundled browser client cannot use those generated clients as-is. The OAuth Applications admin form also generates a secret when left blank, despite its helper text.
+These protections apply to the documented OAuth, management API, and webhook flows. They do not create separate databases or automatically scope every administrative feature. The admin panel currently grants global access to `super_admin`; review privileges, all other endpoints, and your deployment before hosting mutually untrusted organizations. A tenant domain is a record and does not provision DNS or TLS. Environment settings for sign-up, MFA, email verification, and session lifetime are not by themselves enforcement guarantees.
 
-To create a separate public Passport client, inspect the installed command and use the actual callback URL for your application:
+The Portal advertises discovery and JWKS endpoints, but does not currently issue OpenID Connect ID tokens or validate OIDC nonces. Treat this integration as OAuth 2.0 with userinfo, not as a complete OIDC provider.
 
-```bash
-php artisan passport:client --help --no-interaction
-php artisan passport:client --public --name="Example browser app" --redirect_uri="http://localhost:5173/auth/callback" --no-interaction
-```
+## Server-to-server management
 
-This command creates a Passport client; it does not associate it with a tenant application or implement tenant scoping. For production, register an HTTPS callback controlled by the consuming application. Check the output and test the complete flow, including denied authorization, invalid state, mismatched callbacks, token expiry and logout behavior.
-
-The included [JavaScript](../../packages/koamishin-auth-js/README.md) and [PHP](../../packages/koamishin-auth-php/README.md) clients describe their methods and storage behavior. In particular, their logout methods clear local state; do not assume they revoke tokens or end the Portal session. Configure any required cross-origin policy for browser calls; this repository does not provide an application-specific CORS policy.
-
-## Endpoints and scopes
-
-Passport defines `openid`, `profile`, `email`, and `roles` scopes; its defaults are `openid`, `profile`, and `email`. Access tokens are configured for 15 days, refresh tokens for 30 days, and personal access tokens for six months in `AppServiceProvider`.
-
-| Endpoint                            | Purpose                                                                |
-| ----------------------------------- | ---------------------------------------------------------------------- |
-| `/oauth/authorize`                  | Begin the authorization-code flow.                                     |
-| `/oauth/token`                      | Exchange an authorization code or refresh token.                       |
-| `/api/oauth/userinfo`               | Return information about the user represented by a valid bearer token. |
-| `/api/user`                         | Return the authenticated user model for a valid bearer token.          |
-| `/.well-known/openid-configuration` | Return the Portal's discovery metadata.                                |
-| `/oauth/jwks`                       | Return the public signing key from Passport storage.                   |
-
-Both user endpoints expose user metadata. Userinfo also returns roles and permissions regardless of requested scopes, and it is not tenant-scoped. Do not use scopes or tenant membership as a reason to place confidential values in metadata; see [user metadata](user-metadata.mdx).
-
-Discovery advertises OpenID Connect metadata, but the repository does not implement ID-token issuance or OIDC nonce handling. Do not assume OIDC conformance or configure an OIDC-only client against it without implementing and validating the missing behavior.
+Management credentials are separate Passport client-credentials clients bound to one application environment. Provision them on the Portal host with `php artisan koamishin:management-client`, granting only the scopes required by that service. The API reads users, metadata, and application-scoped OAuth grants for the bound environment; it cannot use that credential to administer unrelated organizations. See the [Laravel SDK guide](laravel-sdk.mdx) and [API reference](../reference/examples.mdx).
 
 ## Webhooks
 
-To receive user events, create an active **Webhook Endpoint** in the admin panel, enter the receiving URL and signing secret, and select the events to subscribe to. The dispatcher sends `user.created`, `user.updated`, and `user.deleted` to all active endpoints subscribed to each event or `*`. Subscriptions are not tenant-scoped. User-created and user-updated payloads include profile data, metadata, roles, and permissions; the deleted payload contains the user ID and email.
+In **Webhook Endpoints**, select an application environment, receiving URL, signature format, and events. Enable the endpoint and subscribe to `user.created`, `user.updated`, and/or `user.deleted`. A subscriber receives events only for enrolled users in its assigned environment. `user.created` is emitted when the supported enrollment workflows attach a user; it is not a general notification for every account created elsewhere. `user.updated` includes basic profile details and that environment's public metadata; `user.deleted` contains the user ID. Private metadata, global metadata, and global roles are not included.
 
-Delivery runs on the queue, so start a worker and monitor delivery records and failed jobs. The request includes `svix-id`, `svix-timestamp`, and `svix-signature` headers. The signature is HMAC-SHA256 over the message ID, timestamp and raw body; verify it and implement replay protection at the receiver. The job records deliveries and attempts retries. Test signature interoperability and error handling with your receiver before relying on an integration. Protect the endpoint secret and restrict access to delivery records.
+Delivery is queued after a successful transaction, so run and supervise a queue worker. A delivery attempt includes `svix-id`, `svix-timestamp`, and `svix-signature`. Standard-format deliveries also include matching `webhook-id`, `webhook-timestamp`, and `webhook-signature` headers. Verify the timestamp and HMAC-SHA256 signature over the exact raw body before using it. Retries keep the same message ID; consumers must make effects idempotent. Delivery records can contain user data, so restrict access and set a retention policy.
+
+Select the same signature format at both ends:
+
+- **Legacy Koamishin:** the entire configured secret is the HMAC key. Existing endpoints retain this format on upgrade.
+- **Standard Webhooks:** the secret is `whsec_` followed by a base64-encoded key of at least 16 bytes; the decoded key signs the payload. The Portal generates a suitable key when creating an endpoint without one.
+
+An endpoint left unassigned after migration receives no user events. Assign it to the intended application environment in the admin panel before resuming delivery. Pending old, unscoped user-event jobs are discarded to prevent cross-application data disclosure. A queued event is also discarded if its endpoint is disabled or reassigned to another environment before delivery. The [SDK guide](laravel-sdk.mdx) includes receiver examples and replay-handling limitations.

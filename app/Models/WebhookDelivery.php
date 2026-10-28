@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property int $id
  * @property int $webhook_endpoint_id
+ * @property string|null $message_id
  * @property string $event
  * @property array<string, mixed> $payload
  * @property int|null $response_status
@@ -27,6 +28,7 @@ class WebhookDelivery extends Model
 
     protected $fillable = [
         'webhook_endpoint_id',
+        'message_id',
         'event',
         'payload',
         'response_status',

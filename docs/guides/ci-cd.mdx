@@ -7,7 +7,7 @@ description: Deploy the Laravel application, initialize an administrator, and op
 
 This guide deploys the Laravel application to a server with PHP-FPM and a web server. You can use another host or Octane, but you must adapt and verify its process, storage, and proxy configuration. The [Astro landing and documentation](landing.mdx) are built and hosted separately.
 
-Review [tenancy and OAuth integration](core-concepts.mdx) before connecting real users: tenant records do not currently enforce isolation, and the advertised OpenID Connect endpoints do not implement the complete OIDC flow. Plan a staging deployment and validate the security and integration behavior needed by your applications before exposing the service.
+Review [tenancy and OAuth integration](core-concepts.mdx) before connecting real users: application-environment checks cover the documented OAuth, management, and webhook flows, while other Portal features are not automatically tenant-isolated. The advertised OpenID Connect endpoints do not implement the complete OIDC flow. Plan a staging deployment and validate the security and integration behavior needed by your applications before exposing the service.
 
 ## 1. Prepare the host
 
@@ -119,6 +119,19 @@ If your deployment uses scheduled tasks, run `php artisan schedule:run --no-inte
 5. Check `/up`, sign in, and verify the affected integration and queue jobs. Keep the database and storage backups needed by your rollback plan.
 
 Test this release sequence in staging. Laravel caches configuration, so rebuild caches and restart long-running processes when environment values change. Keep secrets and backups access-controlled, and rehearse restoration of the database, uploaded files, `APP_KEY`, and Passport keys together.
+
+## Upgrade an existing integration to scoped access
+
+This release changes authentication and webhook behavior. Test the upgrade in staging with a database backup and a representative connected application before applying it to production:
+
+1. Inventory each application's OAuth client and its intended development or production environment. The migration backfills a legacy selected-environment client only when the existing mapping is unambiguous. Conflicting, duplicate, missing, or unmapped clients remain denied; inspect and repair them deliberately before enabling traffic. Do not map one OAuth client to multiple application environments.
+2. Confirm that every intended user belongs to the organization and the correct application environment. Existing accounts are not automatically enrolled in every environment. Use the Dashboard import workflow with **Update details if user email already exists** disabled, or use a scoped management credential with `memberships:write` to enroll existing organization members. Check that the user IDs and target environment are correct first.
+3. Update each Laravel consumer to an SDK version containing these changes, configure `KOAMISHIN_APPLICATION_ID` and `KOAMISHIN_ENVIRONMENT`, and test login, refresh, and membership removal. The `/api/user` response is now the same scope-filtered userinfo shape as `/api/oauth/userinfo`, rather than the raw user model. Ensure other clients handle the new claims before deploying.
+4. Legacy global `users.metadata` is no longer returned by userinfo or webhooks. Decide which values belong in each application environment, validate them, and migrate them explicitly using the management API; private and public metadata are separate objects.
+5. Assign every existing webhook endpoint to its intended application environment. Unassigned endpoints receive no user events. Legacy signing remains the default, but the scoped payload shape changes and already-queued unscoped user events are discarded. Update and test receivers and their idempotency handling before restarting workers.
+6. Create separate least-privilege management credentials for services that need the management API, and store the one-time secrets securely. Check userinfo, management access, webhook delivery, and token revocation in each environment.
+
+The migration does not establish tenant isolation for unrelated Portal features. See [tenancy and OAuth](core-concepts.mdx) for the precise boundaries and [Laravel SDK integration](laravel-sdk.mdx) for configuration.
 
 ## Bundled containers
 

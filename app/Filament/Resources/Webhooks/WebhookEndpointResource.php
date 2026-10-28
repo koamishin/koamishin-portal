@@ -8,20 +8,24 @@ use App\Filament\Resources\Webhooks\Pages\CreateWebhookEndpoint;
 use App\Filament\Resources\Webhooks\Pages\EditWebhookEndpoint;
 use App\Filament\Resources\Webhooks\Pages\ListWebhookEndpoints;
 use App\Jobs\DispatchWebhookJob;
+use App\Models\TenantApplicationEnvironment;
 use App\Models\WebhookEndpoint;
 use BackedEnum;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\CheckboxList;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
@@ -59,6 +63,19 @@ class WebhookEndpointResource extends Resource
                             ->required()
                             ->maxLength(255),
 
+                        Select::make('tenant_application_environment_id')
+                            ->label('Application environment')
+                            ->options(fn (): array => TenantApplicationEnvironment::query()
+                                ->with('application.tenant')
+                                ->get()
+                                ->mapWithKeys(fn (TenantApplicationEnvironment $environment): array => [
+                                    $environment->getKey() => $environment->application->tenant->name.' / '.$environment->application->name.' / '.$environment->environment,
+                                ])
+                                ->all())
+                            ->searchable()
+                            ->required()
+                            ->helperText('Only events from this application and environment are delivered.'),
+
                         TextInput::make('url')
                             ->label('Endpoint URL')
                             ->placeholder('https://crm.company.internal/api/webhooks/auth')
@@ -66,12 +83,39 @@ class WebhookEndpointResource extends Resource
                             ->required()
                             ->maxLength(500),
 
+                        Select::make('signature_format')
+                            ->label('Signature Format')
+                            ->options([
+                                'legacy' => 'Legacy Koamishin',
+                                'standard' => 'Standard Webhooks',
+                            ])
+                            ->default('legacy')
+                            ->required()
+                            ->live()
+                            ->helperText('Match this format in your receiving application. Changing it affects signature verification.'),
+
                         TextInput::make('secret')
                             ->label('Signing Secret (HMAC-SHA256)')
                             ->helperText('Used to sign the svix-signature header. Generated automatically on creation.')
                             ->password()
                             ->revealable()
                             ->copyable()
+                            ->dehydrated(fn ($state): bool => filled($state))
+                            ->rules([
+                                fn (Get $get): Closure => function (string $attribute, mixed $value, Closure $fail) use ($get): void {
+                                    if ($get('signature_format') !== 'standard' || blank($value)) {
+                                        return;
+                                    }
+
+                                    $decoded = is_string($value) && str_starts_with($value, 'whsec_')
+                                        ? base64_decode(substr($value, 6), true)
+                                        : false;
+
+                                    if ($decoded === false || strlen($decoded) < 16) {
+                                        $fail('The signing secret must start with whsec_ and contain a base64 key of at least 16 bytes.');
+                                    }
+                                },
+                            ])
                             ->maxLength(255),
 
                         CheckboxList::make('events')
@@ -105,6 +149,14 @@ class WebhookEndpointResource extends Resource
                     ->searchable()
                     ->sortable()
                     ->weight('bold'),
+
+                TextColumn::make('environment.application.name')
+                    ->label('Application')
+                    ->placeholder('Assignment required'),
+
+                TextColumn::make('environment.environment')
+                    ->label('Environment')
+                    ->placeholder('Assignment required'),
 
                 TextColumn::make('url')
                     ->label('Destination URL')

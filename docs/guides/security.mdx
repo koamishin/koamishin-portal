@@ -17,7 +17,7 @@ Protect `.env`, database credentials, OAuth client secrets, `APP_KEY`, and `stor
 
 ## Understand integration boundaries
 
-Tenant associations do not enforce tenant isolation, and the userinfo endpoint currently exposes metadata, roles, and permissions without scope filtering. See [tenancy and OAuth](core-concepts.mdx) and [user metadata](user-metadata.mdx) before connecting clients or storing extra values. User impersonation is sensitive: inspect the current model and policy checks before granting roles or relying on impersonation controls.
+OAuth userinfo, the management API, and user webhooks check application-environment boundaries and expose only their documented fields. These checks do not automatically scope every Portal feature or create separate databases. The `super_admin` role has global administrative access. Protect management and webhook secrets, and review all other endpoints before hosting mutually untrusted organizations. See [tenancy and OAuth](core-concepts.mdx) and [user metadata](user-metadata.mdx). User impersonation is sensitive: inspect the current model and policy checks before granting roles or relying on impersonation controls.
 
 ## Report a vulnerability
 

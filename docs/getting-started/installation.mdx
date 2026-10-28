@@ -74,7 +74,7 @@ Do not run `composer run setup` or the default seeder for this walkthrough. The 
 2. In that organization, open **Applications** and choose **New Application**. Enter a name, choose **Development**, select the target framework, and enter the exact callback URL your client will use. A suggested localhost callback is filled in for supported frameworks; replace it if your client uses a different URL.
 3. Save the application and review its details. The application page shows its client ID, environment values, and framework-specific example snippets. The top bar lets you switch organizations, applications, and the application environment.
 
-An application record is not yet a complete client integration. The generated clients are confidential, and the current flow does not expose the generated secret reliably. The browser SDK cannot exchange codes with those confidential clients as-is. Callback settings and environment labels also do not establish tenant or environment isolation. Read [tenancy and OAuth integration](../guides/core-concepts.mdx) before connecting a client or treating the setup as a security boundary.
+Save the displayed client credentials immediately; confidential secrets are shown once. Enroll a test user in the organization and the selected application environment, then follow [the Laravel SDK guide](../guides/laravel-sdk.mdx) to configure and test a consuming app. The other environment begins without a callback URL. Read [tenancy and OAuth integration](../guides/core-concepts.mdx) for the checks and boundaries of this setup.
 
 ## Next steps
 

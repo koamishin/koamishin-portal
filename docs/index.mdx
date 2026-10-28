@@ -17,12 +17,13 @@ Koamishin Portal is a Laravel application for managing user accounts and OAuth c
 ## Build an integration
 
 - [Tenancy and OAuth integration](guides/core-concepts.mdx) explains application records, clients, endpoints, and webhooks.
+- [Laravel SDK](guides/laravel-sdk.mdx) explains login, server credentials, sessions, and webhooks.
 - [User metadata](guides/user-metadata.mdx) shows how to add, read, and update extra user values.
 - [API reference](reference/examples.mdx) lists the main endpoints and how to inspect the routes available in your installation.
 - The repository includes [JavaScript](../packages/koamishin-auth-js/README.md) and [PHP](../packages/koamishin-auth-php/README.md) client source. Review their documented compatibility limits before using them.
 
 ## Understand the current boundaries
 
-Tenant and environment records do not by themselves enforce isolation. Userinfo exposes user metadata, roles, and permissions without filtering those fields by OAuth scope or tenant. Although the Portal publishes discovery metadata, it does not currently issue OpenID Connect ID tokens or handle OIDC nonces. Read [tenancy and OAuth](guides/core-concepts.mdx) and [security](guides/security.mdx) before connecting applications or handling sensitive data.
+OAuth userinfo, the management API, and user webhooks enforce the application-environment checks described in this guide; other Portal features are not automatically tenant-isolated, and super administrators have global access. Although the Portal publishes discovery metadata, it does not currently issue OpenID Connect ID tokens or handle OIDC nonces. Read [tenancy and OAuth](guides/core-concepts.mdx) and [security](guides/security.mdx) before connecting applications or handling sensitive data.
 
 For the structure of the project, see [architecture](architecture.mdx) and [directory structure](guides/directory-structure.mdx). To publish this site separately, use the [Astro landing and documentation guide](guides/landing.mdx). The project is licensed under the MIT License; see the root `LICENSE` file.

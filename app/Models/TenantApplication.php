@@ -24,6 +24,7 @@ use Laravel\Passport\Client;
  * @property string|null $description
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
+ * @property-read Tenant $tenant
  */
 class TenantApplication extends Model
 {
@@ -97,8 +98,8 @@ class TenantApplication extends Model
         $config = $this->environments()->firstOrCreate(
             ['environment' => $env],
             [
-                'oauth_client_id' => $this->oauth_client_id,
-                'redirect_uris' => $this->redirect_uris,
+                'oauth_client_id' => $env === $this->environment ? $this->oauth_client_id : null,
+                'redirect_uris' => $env === $this->environment ? $this->redirect_uris : [],
                 'settings' => [
                     'allow_signups' => true,
                     'require_email_verification' => $env === 'production',
@@ -116,12 +117,13 @@ class TenantApplication extends Model
         $env = $environment ?? $this->environment;
         $portalUrl = rtrim((string) config('app.url'), '/');
         $config = $this->getEnvironmentConfig($env);
-        $clientId = $config->oauth_client_id ?? $this->oauth_client_id ?? 'your-client-id';
-        $callback = $config->redirect_uris[0] ?? $this->redirect_uris[0] ?? "{$portalUrl}/callback";
+        $clientId = $config->oauth_client_id ?? 'your-client-id';
+        $callback = $config->redirect_uris[0] ?? 'configure-your-callback';
 
         if ($this->framework === 'laravel') {
             return <<<ENV
 KOAMISHIN_PORTAL_URL={$portalUrl}
+KOAMISHIN_APPLICATION_ID={$this->id}
 KOAMISHIN_ENVIRONMENT={$env}
 KOAMISHIN_CLIENT_ID={$clientId}
 KOAMISHIN_CLIENT_SECRET=YOUR_CLIENT_SECRET_HERE
@@ -208,31 +210,39 @@ ENV;
         $callback = $this->redirect_uris[0] ?? 'http://localhost:3000/auth/callback';
 
         return match ($this->framework) {
-            'laravel' => <<<PHP
-// 1. In routes/web.php:
+            'laravel' => <<<'PHP'
+// 1. Add ['driver' => 'koamishin'] under 'guards.koamishin' in config/auth.php.
+// 2. In routes/web.php:
 use Koamishin\Auth\Facades\Koamishin;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
 
-Route::get('/login', fn () => redirect()->away(Koamishin::getLoginUrl()))->name('login');
+Route::get('/login', fn () => redirect()->away(Koamishin::getLoginUrl('/dashboard')))->name('login');
 
-Route::get('/koamishin/callback', function (Request \$request) {
-    \$user = Koamishin::handleCallback(
-        code: (string) \$request->query('code'),
-        state: (string) \$request->query('state'),
-    );
+Route::get('/koamishin/callback', function (Request $request) {
+    if ($request->query('error')) {
+        abort(403, 'Sign-in was not completed.');
+    }
 
-    // Sync or authenticate user in your local database
-    // \$user->id, \$user->name, \$user->email, \$user->roles
+    $input = $request->validate([
+        'code' => ['required', 'string'],
+        'state' => ['required', 'string'],
+    ]);
 
-    return redirect('/dashboard');
+    try {
+        Koamishin::handleCallback($input['code'], $input['state']);
+    } catch (InvalidArgumentException $exception) {
+        abort(403, 'Invalid or expired sign-in request.');
+    }
+
+    return redirect()->to(Koamishin::consumeReturnTo('/dashboard'));
 });
 
-// 2. Protect routes using middleware:
-use Koamishin\Auth\Middleware\AuthenticateWithKoamishin;
-
-Route::middleware(AuthenticateWithKoamishin::class)->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index']);
-});
+// 3. Protect routes with the guard. The user is a KoamishinUser, not an Eloquent model.
+Route::get('/dashboard', fn (Request $request) => response()->json([
+    'id' => $request->user()->id,
+    'name' => $request->user()->name,
+]))->middleware('auth:koamishin');
 PHP,
             'nextjs' => <<<'TS'
 // 1. Initialize client in lib/auth.ts:

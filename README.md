@@ -12,6 +12,7 @@ Follow [installation](docs/getting-started/installation.mdx) for a fresh local i
 
 - [Architecture and limitations](docs/architecture.mdx)
 - [Tenancy and OAuth integration](docs/guides/core-concepts.mdx)
+- [Laravel SDK integration](docs/guides/laravel-sdk.mdx)
 - [User metadata](docs/guides/user-metadata.mdx)
 - [Deployment and operations](docs/guides/ci-cd.mdx)
 - [Astro landing development and deployment](docs/guides/landing.mdx)

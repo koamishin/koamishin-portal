@@ -26,6 +26,6 @@ An application sends a user through Passport's authorization-code flow. After th
 
 ## Boundaries to account for
 
-Tenant and membership records are organizational records; they do not automatically isolate requests or switch databases. The userinfo response is not tenant-scoped and currently returns user metadata, roles, and permissions without filtering those fields by OAuth scope. The discovery document does not establish OpenID Connect conformance: this repository does not implement ID-token issuance or nonce handling.
+Authorization, userinfo, the management API, and webhooks enforce the application-environment checks documented in [tenancy and OAuth](guides/core-concepts.mdx). These checks do not automatically scope every Portal feature or switch databases, and the admin panel gives super administrators global access. The discovery document does not establish OpenID Connect conformance: this repository does not implement ID-token issuance or nonce handling.
 
 The application source and lockfiles determine runtime behavior. Start with `routes/`, `config/`, `app/`, `resources/`, and `Modules/`; the local client source is under `packages/`. See [directory structure](guides/directory-structure.mdx) and [security](guides/security.mdx) for further guidance.

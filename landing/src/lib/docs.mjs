@@ -12,6 +12,7 @@ const pages = [
     'docs/getting-started/configuration.mdx',
     'docs/getting-started/local-development.mdx',
     'docs/guides/core-concepts.mdx',
+    'docs/guides/laravel-sdk.mdx',
     'docs/guides/user-metadata.mdx',
     'docs/guides/workflows.mdx',
     'docs/guides/development.mdx',

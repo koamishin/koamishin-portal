@@ -11,19 +11,21 @@ class UserObserver
 {
     public function created(User $user): void
     {
-        WebhookDispatcher::dispatch('user.created', WebhookDispatcher::userPayload($user));
+        WebhookDispatcher::dispatchForUser('user.created', $user);
     }
 
     public function updated(User $user): void
     {
-        WebhookDispatcher::dispatch('user.updated', WebhookDispatcher::userPayload($user));
+        WebhookDispatcher::dispatchForUser('user.updated', $user);
+    }
+
+    public function deleting(User $user): void
+    {
+        $user->setRelation('pendingWebhookDeletion', WebhookDispatcher::pendingDeletion($user));
     }
 
     public function deleted(User $user): void
     {
-        WebhookDispatcher::dispatch('user.deleted', [
-            'id' => $user->id,
-            'email' => $user->email,
-        ]);
+        WebhookDispatcher::dispatchPending($user->getRelation('pendingWebhookDeletion'));
     }
 }

@@ -213,7 +213,7 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function applications(): BelongsToMany
     {
         return $this->belongsToMany(TenantApplication::class, 'tenant_application_user')
-            ->withPivot(['role', 'last_sign_in_at'])
+            ->withPivot(['role', 'environment', 'last_sign_in_at'])
             ->withTimestamps();
     }
 
@@ -264,6 +264,11 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     public function revokeAllSessions(): void
     {
         DB::table('sessions')->where('user_id', $this->id)->delete();
+
+        DB::table('oauth_refresh_tokens')
+            ->whereIn('access_token_id', $this->tokens()->select('id'))
+            ->update(['revoked' => true]);
+
         $this->tokens()->update(['revoked' => true]);
     }
 }

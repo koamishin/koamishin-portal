@@ -1,20 +1,48 @@
 ---
 title: API and route reference
-description: Locate the Portal's OAuth and application routes.
+description: OAuth userinfo and application-scoped management endpoints.
 ---
 
 # API and route reference
 
-Routes come from the application and its installed packages. From the Portal directory, list the routes for your checkout:
+The Portal exposes OAuth authorization and userinfo for signed-in users, plus a separate management API for trusted application backends. Use HTTPS in production. The management API is limited to 60 requests per minute by its route middleware.
+
+## User authentication
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /oauth/authorize` | Begin the authorization-code flow. |
+| `POST /oauth/token` | Exchange an authorization code, refresh token, or management client credentials. |
+| `GET /api/oauth/userinfo` | Return scope-filtered claims for an enrolled user with a valid user bearer token. |
+| `GET /api/user` | Return the same scoped userinfo claims. |
+
+Userinfo checks the active OAuth client's unique application-environment mapping and the user's organization and environment membership on each request. See [tenancy and OAuth](../guides/core-concepts.mdx) for claims and [the Laravel SDK](../guides/laravel-sdk.mdx) for a complete login example. The Portal does not issue OIDC ID tokens.
+
+## Management API
+
+Create an application-environment-bound management client with the Portal's `koamishin:management-client` command. At `/oauth/token`, use `grant_type=client_credentials` with that client ID, secret, and the requested scope names. Send the resulting access token as `Authorization: Bearer <token>` to the routes below. The scope must be both granted to the client and requested for the token. Management credentials are separate from authorization-code credentials.
+
+| Method and route | Required scope | Behavior |
+| --- | --- | --- |
+| `GET /api/v1/organization` | `organization:read` | Read the credential's organization and application-environment context. |
+| `GET /api/v1/users` | `users:read` | List enrolled users; accepts `page` and `per_page` (1–100, default 15). |
+| `GET /api/v1/users/{userId}` | `users:read` | Retrieve an enrolled user. |
+| `GET /api/v1/users/{userId}/metadata` | `metadata:read` | Retrieve this environment's public and private metadata. |
+| `PATCH /api/v1/users/{userId}/metadata` | `metadata:read`, `metadata:write` | Replace the supplied metadata objects; omitted objects are retained. |
+| `GET /api/v1/users/{userId}/sessions` | `sessions:read` | List this environment's active OAuth grants with pagination. |
+| `DELETE /api/v1/users/{userId}/sessions/{sessionId}` | `sessions:revoke` | Revoke the selected access token and its refresh token; returns 204. |
+| `PUT /api/v1/users/{userId}/membership` | `memberships:write` | Enroll an existing organization member in this environment as `member`; idempotent, returns 204. |
+| `DELETE /api/v1/users/{userId}/membership` | `memberships:write` | Remove this environment membership and revoke its OAuth grants; returns 204. |
+
+Management lists return `data`, `links`, and `meta`; list user IDs are strings. Metadata bodies must be JSON objects. A supplied `public` or `private` object replaces its entire bucket, and the request and combined stored objects are each limited to 16 KiB. See [metadata](../guides/user-metadata.mdx) for examples and privacy considerations.
+
+Membership operations affect only this application environment. They do not create or delete the global user account, change organization membership, or remove metadata in other environments. Session IDs are access-token IDs and change when a token refreshes; session revocation does not end the Portal browser session or other applications' sessions. A concurrent refresh can race a selected grant's revocation.
+
+A missing or invalid bearer token returns 401; a token lacking the required client grant or scope returns 403. An inaccessible user returns 404. Session and membership operations can return 409 if the environment lacks a uniquely mapped active OAuth client. Validation errors return 422, and oversized metadata requests return 413.
+
+For routes installed by your checkout and its packages, run:
 
 ```bash
-php artisan route:list --no-interaction
 php artisan route:list --path=api --no-interaction
 php artisan route:list --path=oauth --no-interaction
 ```
-
-The application defines `GET /api/user` and `GET /api/oauth/userinfo` with Passport's `auth:api` guard. Both require a valid user bearer token. Userinfo returns identity data including `sub`, `name`, `email`, `metadata`, roles, and permissions. See [user metadata](../guides/user-metadata.mdx) for an example request and response.
-
-The [integration guide](../guides/core-concepts.mdx) lists OAuth endpoints and explains the current client, scope, tenant-isolation, and OpenID Connect limitations. Route definitions are in `routes/web.php`, `routes/api.php`, and `routes/settings.php`; packages can register additional routes.
-
-For Vue pages, follow existing Wayfinder imports for generated route helpers. `npm run build` regenerates them before building the application assets.

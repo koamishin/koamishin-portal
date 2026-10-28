@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\TenantApplications\TenantApplicationResource;
 use App\Filament\Widgets\AuthMethodsChartWidget;
 use App\Filament\Widgets\UserSignupsChartWidget;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
 use App\Models\WebhookDelivery;
+use App\Services\OAuth\ApplicationProvisioner;
 use App\Services\Users\LaravelUserImporter;
+use App\Services\Webhooks\WebhookDispatcher;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Select;
@@ -27,8 +30,6 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Str;
-use Laravel\Passport\Client;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -102,8 +103,8 @@ class Dashboard extends BaseDashboard
                         'name' => $data['name'],
                         'email' => $data['email'],
                         'password' => Hash::make($data['password']),
-                        'email_verified_at' => now(),
                     ]);
+                    $newUser->forceFill(['email_verified_at' => now()])->save();
 
                     $role = Role::query()->firstOrCreate([
                         'name' => $data['role'],
@@ -119,13 +120,18 @@ class Dashboard extends BaseDashboard
 
                     $currentApp = $this->getActiveApplication();
                     if ($currentApp instanceof TenantApplication) {
-                        $currentApp->users()->syncWithoutDetaching([
+                        $currentApp->users($currentApp->environment)->syncWithoutDetaching([
                             $newUser->id => [
                                 'environment' => $currentApp->environment,
                                 'role' => $data['role'],
                                 'last_sign_in_at' => now(),
                             ],
                         ]);
+
+                        $environment = $currentApp->environments()->where('environment', $currentApp->environment)->first();
+                        if ($environment) {
+                            WebhookDispatcher::dispatchForEnvironment($environment, 'user.created', $newUser);
+                        }
                     }
 
                     Notification::make()
@@ -185,28 +191,11 @@ class Dashboard extends BaseDashboard
                         return;
                     }
 
-                    $secret = Str::random(40);
-
-                    $client = new Client;
-                    $client->forceFill([
-                        'name' => $data['name'],
-                        'secret' => $secret,
-                        'redirect_uris' => $data['redirect_uris'] ?? [],
-                        'grant_types' => ['authorization_code', 'refresh_token'],
-                        'revoked' => false,
-                    ])->save();
-
-                    /** @var TenantApplication $app */
-                    $app = TenantApplication::query()->create([
-                        'tenant_id' => $tenant->id,
-                        'oauth_client_id' => (string) $client->getKey(),
-                        'name' => $data['name'],
-                        'framework' => $data['framework'],
-                        'environment' => $data['environment'],
-                        'redirect_uris' => $data['redirect_uris'],
-                    ]);
+                    $app = app(ApplicationProvisioner::class)->create($tenant, $data);
 
                     session(['current_application_id' => $app->id]);
+
+                    $this->redirect(TenantApplicationResource::getUrl('view', ['record' => $app, 'tenant' => $tenant]));
 
                     Notification::make()
                         ->title('Application Provisioned')

@@ -9,7 +9,10 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\Setup\SetupController;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
+use App\Models\User;
+use Filament\Facades\Filament;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use Laravel\Fortify\Features;
@@ -49,16 +52,12 @@ Route::get('oauth/jwks', [OpenIdConnectController::class, 'jwks'])->name('oauth.
 Route::get('setup', [SetupController::class, 'index'])->name('setup.index');
 Route::post('setup', [SetupController::class, 'store'])->name('setup.store');
 
-Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{application}', function (Tenant $tenant, TenantApplication $application) {
-    if ($application->tenant_id !== $tenant->id) {
-        abort(403);
-    }
-    session(['current_application_id' => $application->id]);
+Route::middleware(['web', 'auth'])->post('admin/{tenant:slug}/switch-app/{application}', function (Request $request, Tenant $tenant, TenantApplication $application): RedirectResponse {
+    $user = $request->user();
+    abort_unless($user instanceof User && $user->canAccessPanel(Filament::getPanel('admin')) && $user->canAccessTenant($tenant), 403);
+    abort_unless($application->tenant_id === $tenant->id, 404);
 
-    $referer = request()->header('referer');
-    if ($referer && ! str_contains($referer, 'tenant-applications/')) {
-        return redirect()->to($referer);
-    }
+    session(['current_application_id' => $application->id]);
 
     return redirect()->to(TenantApplicationResource::getUrl('view', [
         'record' => $application,
@@ -66,16 +65,28 @@ Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/switch-app/{applica
     ]));
 })->name('filament.admin.switch-application');
 
-Route::middleware(['web', 'auth'])->get('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Tenant $tenant, TenantApplication $application, string $environment): RedirectResponse {
-    if ($application->tenant_id !== $tenant->id) {
-        abort(403);
-    }
+Route::middleware(['web', 'auth'])->post('admin/{tenant:slug}/toggle-env/{application}/{environment}', function (Request $request, Tenant $tenant, TenantApplication $application, string $environment): RedirectResponse {
+    $user = $request->user();
+    abort_unless($user instanceof User && $user->canAccessPanel(Filament::getPanel('admin')) && $user->canAccessTenant($tenant), 403);
+    abort_unless($application->tenant_id === $tenant->id, 404);
+
     if (! in_array($environment, ['development', 'production'], true)) {
         abort(400);
     }
-    $application->update(['environment' => $environment]);
 
-    return back();
+    $configuration = $application->environments()->where('environment', $environment)->first();
+    abort_unless($configuration?->oauth_client_id, 409, 'The selected environment has no OAuth client.');
+
+    $application->update([
+        'environment' => $environment,
+        'oauth_client_id' => $configuration->oauth_client_id,
+        'redirect_uris' => $configuration->redirect_uris,
+    ]);
+
+    return redirect()->to(TenantApplicationResource::getUrl('view', [
+        'record' => $application,
+        'tenant' => $tenant,
+    ]));
 })->name('filament.admin.toggle-environment');
 
 require __DIR__.'/settings.php';

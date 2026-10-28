@@ -6,6 +6,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -14,6 +15,8 @@ use Illuminate\Support\Carbon;
  * @property string $name
  * @property string $url
  * @property string $secret
+ * @property string $signature_format
+ * @property int|null $tenant_application_environment_id
  * @property array<string> $events
  * @property bool $is_active
  * @property string|null $description
@@ -28,6 +31,8 @@ class WebhookEndpoint extends Model
         'name',
         'url',
         'secret',
+        'signature_format',
+        'tenant_application_environment_id',
         'events',
         'is_active',
         'description',
@@ -39,6 +44,14 @@ class WebhookEndpoint extends Model
             'events' => 'array',
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * @return BelongsTo<TenantApplicationEnvironment, $this>
+     */
+    public function environment(): BelongsTo
+    {
+        return $this->belongsTo(TenantApplicationEnvironment::class, 'tenant_application_environment_id');
     }
 
     /**

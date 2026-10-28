@@ -86,6 +86,16 @@ class AppServiceProvider extends ServiceProvider
             'profile' => 'User profile information (name, avatar)',
             'email' => 'User email address',
             'roles' => 'User roles and permissions',
+            'phone' => 'User phone information',
+            'wallet' => 'User wallet information',
+            'metadata:public' => 'Read application-scoped public metadata',
+            'users:read' => 'Read users in the application environment',
+            'metadata:read' => 'Read application-scoped user metadata',
+            'metadata:write' => 'Replace application-scoped user metadata',
+            'sessions:read' => 'Read application-scoped OAuth grants',
+            'sessions:revoke' => 'Revoke application-scoped OAuth grants',
+            'memberships:write' => 'Manage application-environment membership of organization users',
+            'organization:read' => 'Read the application environment organization',
         ]);
 
         Passport::setDefaultScope([

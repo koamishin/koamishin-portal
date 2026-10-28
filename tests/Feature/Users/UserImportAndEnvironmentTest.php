@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Jobs\DispatchWebhookJob;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
+use App\Models\WebhookEndpoint;
 use App\Services\Users\LaravelUserImporter;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Queue;
 use Spatie\Permission\Models\Role;
 
 test('development and production environments maintain isolated user directories', function (): void {
@@ -104,6 +107,7 @@ test('can import users from other laravel applications and preserve existing bcr
 
     // Verbatim hash was preserved
     expect($importedUser->password)->toBe($originalBcryptHash);
+    expect($importedUser->hasVerifiedEmail())->toBeTrue();
 
     // User can authenticate with their existing legacy password seamlessly!
     expect(Hash::check($knownPassword, $importedUser->password))->toBeTrue();
@@ -150,4 +154,75 @@ CSV;
     expect(Hash::check('samplePassword123', $john->password))->toBeTrue();
 
     expect($app->users('development')->where('email', 'john@imported.test')->exists())->toBeTrue();
+});
+
+test('import enrolls an existing user separately in each environment and emits creation only on enrollment', function (): void {
+    $tenant = Tenant::query()->create(['name' => 'Import org', 'slug' => 'import-org']);
+    $application = $tenant->applications()->create([
+        'name' => 'Import app', 'framework' => 'laravel', 'environment' => 'development', 'redirect_uris' => [],
+    ]);
+    $development = $application->environments()->create(['environment' => 'development', 'redirect_uris' => []]);
+    $production = $application->environments()->create(['environment' => 'production', 'redirect_uris' => []]);
+    foreach ([$development, $production] as $environment) {
+        WebhookEndpoint::query()->create([
+            'name' => $environment->environment,
+            'url' => 'https://example.test/webhook',
+            'secret' => 'secret',
+            'tenant_application_environment_id' => $environment->id,
+            'events' => ['user.created'],
+            'is_active' => true,
+        ]);
+    }
+    Queue::fake([DispatchWebhookJob::class]);
+    $user = User::factory()->create(['email' => 'member@example.test']);
+    $importer = new LaravelUserImporter;
+    $row = [['name' => $user->name, 'email' => $user->email]];
+
+    $importer->importFromData($row, $tenant, $application, 'development');
+    $importer->importFromData($row, $tenant, $application, 'production');
+    $importer->importFromData($row, $tenant, $application, 'production');
+
+    expect($tenant->users()->whereKey($user)->exists())->toBeTrue();
+    expect($application->users('development')->whereKey($user)->exists())->toBeTrue();
+    expect($application->users('production')->whereKey($user)->exists())->toBeTrue();
+    Queue::assertPushed(DispatchWebhookJob::class, 2);
+    Queue::assertPushed(DispatchWebhookJob::class, fn (DispatchWebhookJob $job): bool => $job->event === 'user.created'
+        && $job->endpoint->tenant_application_environment_id === $development->id);
+    Queue::assertPushed(DispatchWebhookJob::class, fn (DispatchWebhookJob $job): bool => $job->event === 'user.created'
+        && $job->endpoint->tenant_application_environment_id === $production->id);
+});
+
+test('import rejects an application owned by a different organization', function (): void {
+    $tenant = Tenant::query()->create(['name' => 'First org', 'slug' => 'first-org']);
+    $other = Tenant::query()->create(['name' => 'Second org', 'slug' => 'second-org']);
+    $application = $other->applications()->create([
+        'name' => 'Other app', 'framework' => 'laravel', 'environment' => 'development', 'redirect_uris' => [],
+    ]);
+
+    expect(fn () => (new LaravelUserImporter)->importFromData(
+        [['name' => 'Member', 'email' => 'member@example.test']], $tenant, $application
+    ))->toThrow(InvalidArgumentException::class);
+    expect(User::query()->where('email', 'member@example.test')->exists())->toBeFalse();
+});
+
+test('reimport without updating details preserves existing organization and application roles', function (): void {
+    $tenant = Tenant::query()->create(['name' => 'Role org', 'slug' => 'role-org']);
+    $application = $tenant->applications()->create([
+        'name' => 'Role app', 'framework' => 'laravel', 'environment' => 'production', 'redirect_uris' => [],
+    ]);
+    $user = User::factory()->create(['name' => 'Original name', 'email' => 'owner@example.test']);
+    $tenant->users()->attach($user, ['role' => 'owner']);
+    $application->users()->attach($user, ['environment' => 'production', 'role' => 'admin']);
+
+    (new LaravelUserImporter)->importFromData(
+        [['name' => 'Changed name', 'email' => $user->email, 'role' => 'member']],
+        $tenant,
+        $application,
+        'production',
+        ['update_existing' => false],
+    );
+
+    expect($user->fresh()->name)->toBe('Original name');
+    expect($tenant->users()->whereKey($user)->firstOrFail()->pivot->role)->toBe('owner');
+    expect($application->users('production')->whereKey($user)->firstOrFail()->pivot->role)->toBe('admin');
 });

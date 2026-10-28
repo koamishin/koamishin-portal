@@ -116,9 +116,11 @@
 
         <x-filament::dropdown.list>
             @forelse($applications as $app)
+                <form method="POST" action="{{ route('filament.admin.switch-application', ['tenant' => $currentTenant, 'application' => $app]) }}">
+                    @csrf
                 <x-filament::dropdown.list.item
-                    :href="route('filament.admin.switch-application', ['tenant' => $currentTenant, 'application' => $app])"
-                    tag="a"
+                    tag="button"
+                    type="submit"
                     :icon="$currentApp && $currentApp->id === $app->id ? 'heroicon-m-check-circle' : 'heroicon-o-cube'"
                     :color="$currentApp && $currentApp->id === $app->id ? 'primary' : 'gray'"
                 >
@@ -131,6 +133,7 @@
                         </span>
                     </div>
                 </x-filament::dropdown.list.item>
+                </form>
             @empty
                 <div class="px-3 py-2 text-xs text-gray-400 text-center">
                     No applications created yet.
@@ -187,9 +190,11 @@
 
         @if($currentApp)
             <x-filament::dropdown.list>
+                <form method="POST" action="{{ route('filament.admin.toggle-environment', ['tenant' => $currentTenant, 'application' => $currentApp, 'environment' => 'development']) }}">
+                    @csrf
                 <x-filament::dropdown.list.item
-                    :href="route('filament.admin.toggle-environment', ['tenant' => $currentTenant, 'application' => $currentApp, 'environment' => 'development'])"
-                    tag="a"
+                    tag="button"
+                    type="submit"
                     :icon="$currentEnv === 'development' ? 'heroicon-m-check-circle' : 'heroicon-o-wrench-screwdriver'"
                     :color="$currentEnv === 'development' ? 'warning' : 'gray'"
                 >
@@ -201,10 +206,13 @@
                         <span class="text-[10px] text-gray-400 font-mono">Sandbox</span>
                     </div>
                 </x-filament::dropdown.list.item>
+                </form>
 
+                <form method="POST" action="{{ route('filament.admin.toggle-environment', ['tenant' => $currentTenant, 'application' => $currentApp, 'environment' => 'production']) }}">
+                    @csrf
                 <x-filament::dropdown.list.item
-                    :href="route('filament.admin.toggle-environment', ['tenant' => $currentTenant, 'application' => $currentApp, 'environment' => 'production'])"
-                    tag="a"
+                    tag="button"
+                    type="submit"
                     :icon="$currentEnv === 'production' ? 'heroicon-m-check-circle' : 'heroicon-o-check-badge'"
                     :color="$currentEnv === 'production' ? 'success' : 'gray'"
                 >
@@ -216,6 +224,7 @@
                         <span class="text-[10px] text-gray-400 font-mono">Live</span>
                     </div>
                 </x-filament::dropdown.list.item>
+                </form>
             </x-filament::dropdown.list>
         @else
             <div class="p-3 text-xs text-gray-400 text-center">
