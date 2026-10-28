@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Middleware;
 
+use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAccess;
 use Closure;
@@ -37,7 +38,7 @@ class EnsureOAuthApplicationAccess
         }
 
         $environment = $this->access->environmentForClient($clientId);
-        if (!$environment instanceof \App\Models\TenantApplicationEnvironment) {
+        if (! $environment instanceof TenantApplicationEnvironment) {
             abort(403);
         }
 

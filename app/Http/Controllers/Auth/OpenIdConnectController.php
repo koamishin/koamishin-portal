@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\ApplicationUserMetadata;
+use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAccess;
 use Illuminate\Http\JsonResponse;
@@ -93,7 +94,7 @@ class OpenIdConnectController extends Controller
         }
 
         $environment = $access->environmentForClient($token->oauth_client_id);
-        if (! $environment instanceof \App\Models\TenantApplicationEnvironment || ! $access->allows($environment, $user)) {
+        if (! $environment instanceof TenantApplicationEnvironment || ! $access->allows($environment, $user)) {
             abort(403);
         }
 
