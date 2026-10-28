@@ -19,7 +19,9 @@ class CreateTenantApplication extends CreateRecord
     protected function handleRecordCreation(array $data): Model
     {
         $tenant = Filament::getTenant() ?? Tenant::query()->findOrFail($data['tenant_id'] ?? null);
-        abort_unless($tenant instanceof Tenant, 403);
+        if (! $tenant instanceof Tenant) {
+            abort(403);
+        }
 
         return app(ApplicationProvisioner::class)->create($tenant, $data);
     }

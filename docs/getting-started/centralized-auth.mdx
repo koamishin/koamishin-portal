@@ -1,0 +1,201 @@
+---
+title: Centralized login for two Laravel applications
+description: Register one Portal account and use it to sign in to two separately configured Laravel applications.
+---
+
+# Centralized login for two Laravel applications
+
+This walkthrough connects two Laravel applications to one local Koamishin Portal. A person registers one account with the Portal; after an administrator enrolls that account, the person can sign in to both applications. Each application receives its own OAuth client and maintains its own session.
+
+**Current registration behavior:** the Portal's `/register` page creates a global Portal account. It does not automatically grant access to the application that sent the user there. An administrator must enroll the account in each organization and application environment. An unenrolled user receives 403 when the OAuth authorization request is checked.
+
+## Before you start
+
+Complete [Portal installation](installation.mdx), including `/setup`, and keep the Portal running. This walkthrough uses development-only HTTP origins:
+
+| Service | Origin                         | Callback                                         |
+| ------- | ------------------------------ | ------------------------------------------------ |
+| Portal  | `http://portal.localhost:8000` | —                                                |
+| App A   | `http://app-a.localhost:8001`  | `http://app-a.localhost:8001/koamishin/callback` |
+| App B   | `http://app-b.localhost:8002`  | `http://app-b.localhost:8002/koamishin/callback` |
+
+Make sure all three names resolve to your own machine, for example to `127.0.0.1`; local hostname resolution varies by operating system. Configure local hosts/DNS if needed. These separate hostnames keep browser session and CSRF cookies from different applications from interfering with each other. Do not use these HTTP origins for production.
+
+In the Portal's `.env`, set the following before starting or restarting `composer run dev`:
+
+```dotenv
+APP_URL=http://portal.localhost:8000
+SESSION_COOKIE=koamishin_portal_session
+SESSION_DOMAIN=null
+MAIL_MAILER=log
+```
+
+`MAIL_MAILER=log` is for local testing: verification messages and their links are written to `storage/logs/laravel.log`. Configure a real mail service for production. Restart the Portal after changing its configuration and sign in at the new Portal origin. Use one browser profile for the administrator and a separate profile or private window for the test user, so their Portal sessions do not replace each other.
+
+## 1. Create two application clients
+
+In the Portal administration panel, create or select an organization. Under **Applications**, create these applications separately:
+
+| Setting      | App A                                            | App B                                            |
+| ------------ | ------------------------------------------------ | ------------------------------------------------ |
+| Name         | App A                                            | App B                                            |
+| Framework    | Laravel                                          | Laravel                                          |
+| Environment  | Development                                      | Development                                      |
+| Callback URL | `http://app-a.localhost:8001/koamishin/callback` | `http://app-b.localhost:8002/koamishin/callback` |
+
+Save the displayed **development** client ID and secret for each app immediately. The secret is shown only once. Also record each numeric Portal application ID; the Laravel environment snippet on the application page includes `KOAMISHIN_APPLICATION_ID`. Do not reuse App A's client credentials or application ID for App B. Each production environment has separate credentials and starts without a callback URL.
+
+## 2. Register and enroll one user
+
+In the test user's browser profile, open `http://portal.localhost:8000/register` and register a new account. Use a real test email you can identify in the admin panel. If using the local log mailer, retrieve the verification link from the Portal log as needed. OAuth authorization currently checks membership and does not itself enforce verified email; the Portal dashboard has a separate verification requirement.
+
+In the administrator profile:
+
+1. Confirm that the exact email is present under **Users** in the Portal.
+2. Select the organization and **App A** in the top bar, then open the Dashboard and choose **Import Users**.
+3. Select **JSON Format**, choose **Development**, and enter the existing email, replacing the example:
+
+    ```json
+    [{ "email": "person@example.test" }]
+    ```
+
+4. Turn **Auto-verify imported email addresses** and **Update details if user email already exists** off, then import. This attaches the existing account to the selected organization and application environment without changing its password or existing roles.
+5. Select **App B** and repeat the import for its development environment. Verify the user appears in each selected application's Dashboard user list.
+
+Confirm the email exists before importing: an unknown email creates a new Portal account with a generated password. An existing user may be counted as **skipped** even though the membership was attached; check the application user list rather than relying on that count. Development and production memberships are separate.
+
+An alternative for server-side administration is to first assign an existing user to the organization, then use a management client with `memberships:write` to enroll their known Portal user ID. See the [API reference](../reference/examples.mdx). The management user list only includes users already enrolled in that application environment.
+
+## 3. Prepare the Laravel applications
+
+Use two existing Laravel applications, or create two new Laravel 13 projects in a separate directory:
+
+```bash
+composer create-project laravel/laravel app-a '^13.0' --no-interaction
+composer create-project laravel/laravel app-b '^13.0' --no-interaction
+```
+
+In **each** application's directory, install an SDK version containing the current features and publish its configuration:
+
+```bash
+composer config repositories.koamishin-auth vcs https://github.com/koamishin/auth-php.git
+composer require koamishin/auth-php:dev-main
+php artisan vendor:publish --tag=koamishin-config --no-interaction
+```
+
+These commands use the SDK development branch because a stable package release may not yet include the features described here. Commit the consuming project's `composer.lock` to pin the resolved revision; use a reviewed release for production. The package registers its Laravel service provider automatically.
+
+Set App A's `.env`, replacing the client values and application ID with the ones saved for **App A**:
+
+```dotenv
+APP_URL=http://app-a.localhost:8001
+SESSION_COOKIE=app_a_session
+SESSION_DOMAIN=null
+
+KOAMISHIN_PORTAL_URL=http://portal.localhost:8000
+KOAMISHIN_CLIENT_ID=app-a-development-client-id
+KOAMISHIN_CLIENT_SECRET=app-a-development-client-secret
+KOAMISHIN_REDIRECT_URI=http://app-a.localhost:8001/koamishin/callback
+KOAMISHIN_APPLICATION_ID=app-a-numeric-application-id
+KOAMISHIN_ENVIRONMENT=development
+```
+
+Set App B's `.env` with **its own** values:
+
+```dotenv
+APP_URL=http://app-b.localhost:8002
+SESSION_COOKIE=app_b_session
+SESSION_DOMAIN=null
+
+KOAMISHIN_PORTAL_URL=http://portal.localhost:8000
+KOAMISHIN_CLIENT_ID=app-b-development-client-id
+KOAMISHIN_CLIENT_SECRET=app-b-development-client-secret
+KOAMISHIN_REDIRECT_URI=http://app-b.localhost:8002/koamishin/callback
+KOAMISHIN_APPLICATION_ID=app-b-numeric-application-id
+KOAMISHIN_ENVIRONMENT=development
+```
+
+The application ID must be the actual numeric ID from the Portal, not the placeholder text. Do not commit either `.env`. Ensure each Laravel application's `APP_KEY` is set, and its session database or other configured session store is ready. If you use a configuration cache, rebuild it after changing `.env`.
+
+## 4. Add the guard and routes to both apps
+
+In **each** application's `config/auth.php`, add this entry inside the existing `guards` array:
+
+```php
+'koamishin' => [
+    'driver' => 'koamishin',
+],
+```
+
+Add these routes to **each** application's `routes/web.php`. Avoid duplicating route names if the consuming app already has login or logout routes.
+
+```php
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use Koamishin\Auth\Facades\Koamishin;
+
+Route::get('/register', function () {
+    return redirect()->away(rtrim(config('koamishin.portal_url'), '/').'/register');
+})->name('register');
+
+Route::get('/login', function () {
+    return redirect()->away(Koamishin::getLoginUrl('/dashboard'));
+})->name('login');
+
+Route::get('/koamishin/callback', function (Request $request) {
+    if ($request->query('error')) {
+        abort(403, 'Sign-in was not completed.');
+    }
+
+    $input = $request->validate([
+        'code' => ['required', 'string'],
+        'state' => ['required', 'string'],
+    ]);
+
+    try {
+        Koamishin::handleCallback($input['code'], $input['state']);
+    } catch (InvalidArgumentException $exception) {
+        abort(403, 'Invalid or expired sign-in request.');
+    }
+
+    return redirect()->to(Koamishin::consumeReturnTo('/dashboard'));
+});
+
+Route::get('/dashboard', function (Request $request) {
+    $user = $request->user();
+
+    return response()->json([
+        'id' => $user->id,
+        'name' => $user->name,
+        'email' => $user->email,
+        'application_id' => $user->applicationId,
+        'environment' => $user->environment,
+    ]);
+})->middleware('auth:koamishin');
+
+Route::post('/logout', function () {
+    Koamishin::logout();
+
+    return redirect('/');
+})->name('logout');
+```
+
+The example's `/register` route sends a visitor to the Portal registration page; it does not enroll them or automatically return them to the app. After an administrator enrolls the account, the user returns to the application's `/login`. Submit `/logout` with a CSRF-protected POST form. Local app logout clears that app's SDK session; it does not sign the user out of the Portal or other apps.
+
+## 5. Start the clients and test
+
+Start each Laravel app in its own terminal:
+
+```bash
+# In app-a/
+php artisan serve --host=127.0.0.1 --port=8001 --no-interaction
+```
+
+```bash
+# In app-b/
+php artisan serve --host=127.0.0.1 --port=8002 --no-interaction
+```
+
+In the **test user's** browser profile, open App A's `/login`, sign in to the Portal if prompted, and approve the authorization request. The callback should display the user's ID and App A's application ID on `/dashboard`. Repeat with App B's `/login`: the Portal may reuse its existing browser session, but App B has its own authorization and app session. Both dashboards should show the **same user ID** and different application IDs.
+
+If an app returns 403, check the organization and environment memberships, the application's expected ID, and that the client belongs to the same environment. If the callback fails, check the exact registered URL, the client secret, the hostnames and cookie settings, and the Laravel session store. If registration mail fails, check the Portal's mail configuration. See [Laravel SDK integration](../guides/laravel-sdk.mdx) for session refresh, role checks, metadata, webhooks, and production configuration.

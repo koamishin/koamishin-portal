@@ -9,6 +9,12 @@ use App\Models\User;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 
+use function Pest\Laravel\actingAs;
+use function Pest\Laravel\getJson;
+use function Pest\Laravel\post;
+use function Pest\Laravel\postJson;
+use function Pest\Laravel\withToken;
+
 /** @return array{Client, TenantApplicationEnvironment} */
 function oauthTestEnvironment(User $user, string $name = 'test', string $environment = 'development'): array
 {
@@ -25,13 +31,13 @@ function oauthTestEnvironment(User $user, string $name = 'test', string $environ
         'name' => $name,
         'framework' => 'laravel',
         'environment' => $environment,
-        'redirect_uris' => $client->redirect_uris,
+        'redirect_uris' => $client->getAttribute('redirect_uris'),
         'oauth_client_id' => $client->getKey(),
     ]);
     $configuration = $application->environments()->create([
         'environment' => $environment,
         'oauth_client_id' => $client->getKey(),
-        'redirect_uris' => $client->redirect_uris,
+        'redirect_uris' => $client->getAttribute('redirect_uris'),
     ]);
     $tenant->users()->attach($user);
     $application->users()->attach($user, ['environment' => $environment, 'role' => 'member']);
@@ -40,7 +46,7 @@ function oauthTestEnvironment(User $user, string $name = 'test', string $environ
 }
 
 test('openid configuration endpoint returns valid oidc discovery metadata', function (): void {
-    $response = $this->getJson('/.well-known/openid-configuration');
+    $response = getJson('/.well-known/openid-configuration');
 
     $response->assertOk()
         ->assertJsonStructure([
@@ -58,7 +64,7 @@ test('openid configuration endpoint returns valid oidc discovery metadata', func
 });
 
 test('jwks endpoint returns valid rsa public key set', function (): void {
-    $response = $this->getJson('/oauth/jwks');
+    $response = getJson('/oauth/jwks');
 
     $response->assertOk()
         ->assertJsonStructure([
@@ -84,7 +90,7 @@ test('userinfo endpoint returns claims for authenticated bearer token', function
     [$client] = oauthTestEnvironment($user);
     Passport::actingAs($user, ['openid', 'profile', 'email'], 'api', $client);
 
-    $response = $this->getJson('/api/oauth/userinfo');
+    $response = getJson('/api/oauth/userinfo');
 
     $response->assertOk()
         ->assertJsonPath('name', 'Koamishin Engineer')
@@ -98,17 +104,17 @@ test('full oauth2 authorization code flow can be executed end to end', function 
     [$client] = oauthTestEnvironment($user);
 
     // 1. Request authorization view
-    $authPage = $this->actingAs($user)->get(
-        "/oauth/authorize?client_id={$client->id}&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid profile email"
+    $authPage = actingAs($user)->get(
+        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid profile email'
     );
     $authPage->assertOk();
 
     $authToken = $authPage->original->getData()['page']['props']['authToken'];
 
     // 2. Approve authorization
-    $approve = $this->actingAs($user)->post('/oauth/authorize', [
+    $approve = actingAs($user)->post('/oauth/authorize', [
         'state' => 'flow123',
-        'client_id' => $client->id,
+        'client_id' => $client->getKey(),
         'auth_token' => $authToken,
     ]);
 
@@ -118,9 +124,9 @@ test('full oauth2 authorization code flow can be executed end to end', function 
     expect($code)->not->toBeEmpty();
 
     // 3. Exchange code for access token
-    $tokenResponse = $this->postJson('/oauth/token', [
+    $tokenResponse = postJson('/oauth/token', [
         'grant_type' => 'authorization_code',
-        'client_id' => $client->id,
+        'client_id' => $client->getKey(),
         'client_secret' => 'super-secret-key',
         'redirect_uri' => 'https://testapp.internal/callback',
         'code' => $code,
@@ -132,14 +138,14 @@ test('full oauth2 authorization code flow can be executed end to end', function 
     $accessToken = $tokenResponse->json('access_token');
 
     // 4. Fetch userinfo with access token
-    $userinfo = $this->withToken($accessToken)->getJson('/api/oauth/userinfo');
+    $userinfo = withToken($accessToken)->getJson('/api/oauth/userinfo');
     $userinfo->assertOk()
         ->assertJsonPath('email', $user->email);
 
     $user->ban('Account disabled');
-    $this->postJson('/oauth/token', [
+    postJson('/oauth/token', [
         'grant_type' => 'refresh_token',
-        'client_id' => $client->id,
+        'client_id' => $client->getKey(),
         'client_secret' => 'super-secret-key',
         'refresh_token' => $tokenResponse->json('refresh_token'),
     ])->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
@@ -157,7 +163,7 @@ test('userinfo exposes only requested and environment-scoped claims', function (
 
     Passport::actingAs($user, ['openid', 'metadata:public', 'roles'], 'api', $client);
 
-    $this->getJson('/api/oauth/userinfo')
+    getJson('/api/oauth/userinfo')
         ->assertOk()
         ->assertJsonPath('public_metadata.plan', 'standard')
         ->assertJsonPath('roles.0', 'member')
@@ -180,8 +186,8 @@ test('userinfo refuses a token when its application or organization membership i
 
     Passport::actingAs($user, ['openid'], 'api', $client);
 
-    $this->getJson('/api/oauth/userinfo')->assertForbidden();
-    $this->getJson('/api/user')->assertForbidden();
+    getJson('/api/oauth/userinfo')->assertForbidden();
+    getJson('/api/user')->assertForbidden();
 })->with(['organization', 'application environment']);
 
 test('userinfo refuses revoked clients, inactive organizations, and banned users', function (string $condition): void {
@@ -192,11 +198,12 @@ test('userinfo refuses revoked clients, inactive organizations, and banned users
         'revoked client' => $client->update(['revoked' => true]),
         'inactive organization' => $environment->application->tenant->update(['is_active' => false]),
         'banned user' => $user->forceFill(['banned_at' => now()])->save(),
+        default => throw new InvalidArgumentException('Unknown user condition.'),
     };
 
     Passport::actingAs($user, ['openid'], 'api', $client);
 
-    $this->getJson('/api/oauth/userinfo')->assertForbidden();
+    getJson('/api/oauth/userinfo')->assertForbidden();
 })->with(['revoked client', 'inactive organization', 'banned user']);
 
 test('userinfo refuses a client that is bound to more than one application environment', function (): void {
@@ -206,34 +213,34 @@ test('userinfo refuses a client that is bound to more than one application envir
         'name' => 'Other application',
         'framework' => 'laravel',
         'environment' => 'development',
-        'redirect_uris' => $client->redirect_uris,
+        'redirect_uris' => $client->getAttribute('redirect_uris'),
         'oauth_client_id' => $client->getKey(),
     ]);
     $otherApplication->environments()->create([
         'environment' => 'development',
         'oauth_client_id' => $client->getKey(),
-        'redirect_uris' => $client->redirect_uris,
+        'redirect_uris' => $client->getAttribute('redirect_uris'),
     ]);
 
     Passport::actingAs($user, ['openid'], 'api', $client);
 
-    $this->getJson('/api/oauth/userinfo')->assertForbidden();
+    getJson('/api/oauth/userinfo')->assertForbidden();
 });
 
 test('authorization approval is refused if application membership changes after consent is displayed', function (): void {
     $user = User::factory()->create();
     [$client, $environment] = oauthTestEnvironment($user);
 
-    $response = $this->actingAs($user)->get(
-        "/oauth/authorize?client_id={$client->id}&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid"
+    $response = actingAs($user)->get(
+        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid'
     );
     $response->assertOk();
     $authToken = $response->original->getData()['page']['props']['authToken'];
     $environment->application->users('development')->detach($user);
 
-    $this->post('/oauth/authorize', [
+    post('/oauth/authorize', [
         'state' => 'flow123',
-        'client_id' => $client->id,
+        'client_id' => $client->getKey(),
         'auth_token' => $authToken,
     ])->assertForbidden();
 });
@@ -243,7 +250,7 @@ test('authorization refuses an application without environment membership before
     [$client, $environment] = oauthTestEnvironment($user);
     $environment->application->users('development')->detach($user);
 
-    $this->actingAs($user)->get(
-        "/oauth/authorize?client_id={$client->id}&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid"
+    actingAs($user)->get(
+        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid'
     )->assertForbidden();
 });

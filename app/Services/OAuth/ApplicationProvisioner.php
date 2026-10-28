@@ -15,10 +15,49 @@ class ApplicationProvisioner
     public function __construct(private readonly ClientRepository $clients) {}
 
     /**
-     * @param  array{name: string, framework: string, environment: string, redirect_uris: array<int, string>, description?: ?string}  $data
+     * @param  array<string, mixed>  $data
      */
     public function create(Tenant $tenant, array $data): TenantApplication
     {
+        $name = $data['name'] ?? null;
+        $framework = $data['framework'] ?? null;
+        $environment = $data['environment'] ?? null;
+        $inputRedirectUris = $data['redirect_uris'] ?? null;
+        $description = $data['description'] ?? null;
+
+        if (! is_string($name) || trim($name) === '' || mb_strlen($name) > 255) {
+            throw ValidationException::withMessages(['name' => 'Provide an application name of at most 255 characters.']);
+        }
+
+        if (! is_string($framework) || trim($framework) === '') {
+            throw ValidationException::withMessages(['framework' => 'Select an application framework.']);
+        }
+
+        if (! is_string($environment) || ! is_array($inputRedirectUris)) {
+            throw ValidationException::withMessages(['redirect_uris' => 'Provide an environment and callback URLs.']);
+        }
+
+        if ($description !== null && ! is_string($description)) {
+            throw ValidationException::withMessages(['description' => 'The description must be text.']);
+        }
+
+        $redirectUris = [];
+        foreach ($inputRedirectUris as $uri) {
+            if (! is_string($uri)) {
+                throw ValidationException::withMessages(['redirect_uris' => 'Each callback URL must be text.']);
+            }
+
+            $redirectUris[] = $uri;
+        }
+
+        $data = [
+            'name' => $name,
+            'framework' => $framework,
+            'environment' => $environment,
+            'redirect_uris' => $redirectUris,
+            'description' => $description,
+        ];
+
         $this->validateRedirects($data['environment'], $data['redirect_uris']);
         $confidential = in_array($data['framework'], ['laravel', 'nodejs'], true);
 
@@ -39,7 +78,7 @@ class ApplicationProvisioner
                 'framework' => $data['framework'],
                 'environment' => $data['environment'],
                 'redirect_uris' => $data['redirect_uris'],
-                'description' => $data['description'] ?? null,
+                'description' => $data['description'],
                 'oauth_client_id' => (string) $selected->getKey(),
             ]);
 

@@ -1,40 +1,80 @@
 ---
-title: Application user metadata
-description: Store and retrieve application-specific values with the Laravel SDK or management API.
+title: Application User Metadata
+description: Configure, store, and consume custom user attributes using the Filament Admin Panel, Laravel SDK, or REST Management API.
 ---
 
-# Application user metadata
+# Application User Metadata
 
-Application metadata adds custom JSON values to a user within one application and environment. For example, the same person can have a different language preference in development and production, or in two applications. Metadata does not require adding a database column for each key.
+User metadata enables you to attach custom JSON attributes to any user account without altering database schemas or writing database migrations. Koamishin Portal supports two distinct metadata layers:
 
-Each user has two objects per application environment:
+1. **Global User Metadata** (`users.metadata`): Managed by administrators via the Filament Admin Panel. Ideal for global administrative profile notes and account-level attributes.
+2. **Application-Scoped Metadata** (`application_user_metadata`): Isolated per connected application and per environment (`development` vs `production`). Separated into `public` and `private` buckets for secure client-side exposure and server-side processing.
 
-| Object | Where it can be read | Example |
-| --- | --- | --- |
-| `public` | Userinfo with the `metadata:public` user scope, application webhooks, and the management API | Display preferences |
-| `private` | The management API with `metadata:read` | Internal integration identifiers |
+---
 
-Private metadata is access-controlled by the management credential; it is **not encrypted at the application layer**. Protect database backups, management credentials, logs, and any consumers of the API. Do not put passwords, API keys, or bearer tokens in metadata. Validate values in your own application and do not treat user-supplied metadata as authorization.
+## Metadata Architecture
 
-The older `users.metadata` field in the Portal admin panel is a separate, global user field. It is not copied automatically into application metadata and is not returned by the scoped userinfo or webhook payloads. Plan an explicit, reviewed migration if existing applications rely on those values.
+```
+                                    +-------------------------------------------------------------+
+                                    |                         User Account                        |
+                                    |                (Global Profile: users.metadata)             |
+                                    +-------------------------------------------------------------+
+                                                                   |
+                                      +----------------------------+----------------------------+
+                                      |                                                         |
+                                      v                                                         v
+                       +------------------------------+                          +------------------------------+
+                       |    App 1: DCCP Portal (Prod) |                          |   App 2: DCCP Hub (Dev)      |
+                       +------------------------------+                          +------------------------------+
+                       | public:  {"theme": "dark"}   |                          | public:  {"beta_tester": true}|
+                       | private: {"stripe_id": "cus"} |                          | private: {"crm_lead_id": 99} |
+                       +------------------------------+                          +------------------------------+
+```
 
-## 1. Prepare the application and user
+### Public vs. Private Metadata
 
-Create an organization and application in the Portal, and enroll the user in both the organization and the application's selected environment. The management credential and the user's OAuth client must be associated with the same environment. The Dashboard's **Quick Add User** and **Import Users** actions can enroll users into the current application; see [tenancy and OAuth](core-concepts.mdx).
+Each application environment maintains two isolated JSON dictionaries for every enrolled user:
 
-Create a separate server-to-server credential on the Portal host. Replace `42` with your application ID and choose the environment. This example grants user reads and both metadata scopes:
+| Bucket        | Visibility & Access                                                                                                                                                                                                                                      | Typical Use Cases                                                                             |
+| :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------- |
+| **`public`**  | **Client & Server Accessible**<br />- Returned in OIDC `/api/oauth/userinfo` with scope `metadata:public`<br />- Returned in `Koamishin::user()->publicMetadata`<br />- Delivered in signed `user.updated` webhooks<br />- Read/Write via Management API | UI theme preferences, locale, display badges, feature flags, onboarding completion status     |
+| **`private`** | **Server-Only (Confidential)**<br />- Never exposed to end users, browser sessions, or `/api/oauth/userinfo`<br />- Accessible **only** via Management API (`metadata:read` & `metadata:write`) with server-to-server credentials                        | Stripe / Payment Customer IDs, internal ERP customer references, risk scores, CRM identifiers |
+
+> ⚠️ **Security Warning**: Private metadata is strictly access-controlled by OAuth2 client credentials and token scopes; it is not encrypted at rest at the database layer. Never store plaintext passwords, private encryption keys, or sensitive payment card data in user metadata.
+
+---
+
+## 1. Configuring Metadata in the Admin Panel
+
+Administrators can inspect and modify user metadata directly from the Filament admin dashboard:
+
+1. Log in to the Portal at `/admin` and navigate to **Users**.
+2. Select any user to open their **View User** page (`/admin/{tenant}/users/{id}`).
+3. Under the **Custom Metadata** card, click **Edit** or open the edit page.
+4. The key-value editor allows you to add, edit, or remove arbitrary JSON key-value pairs (e.g. `department` => `Engineering`, `tier` => `Enterprise`).
+5. Save your changes. The user's updated profile metadata is immediately updated and reflected across the admin portal.
+
+---
+
+## 2. Setting Up Developer Management Credentials
+
+To manipulate application-scoped metadata programmatically from your backend application, provision a server-to-server Management Client:
 
 ```bash
-php artisan koamishin:management-client 42 development \
-  --scope=users:read --scope=metadata:read --scope=metadata:write \
+# Syntax: php artisan koamishin:management-client <application_id> <environment> --scope=<scope>
+php artisan koamishin:management-client 1 development \
+  --scope=users:read \
+  --scope=metadata:read \
+  --scope=metadata:write \
   --no-interaction
 ```
 
-Copy the client ID and secret into a secure secret store; the secret is shown only at creation. Keep these credentials on your server and separate from the user's authorization-code client. `metadata:read` permits reading both objects; updates require both `metadata:read` and `metadata:write`, because the response contains both objects. Grant only the scopes the service needs.
+The CLI will output the credentials:
 
-## 2. Configure the Laravel SDK
+- `Client ID`: A unique UUID or client identifier.
+- `Client Secret`: A secure, cryptographically random secret (shown only once).
 
-After installing the PHP SDK, set these values in the consuming Laravel application's server-side environment:
+Save these credentials in your application's environment file (`.env`):
 
 ```dotenv
 KOAMISHIN_PORTAL_URL=https://auth.example.com
@@ -42,54 +82,234 @@ KOAMISHIN_MANAGEMENT_CLIENT_ID=your-management-client-id
 KOAMISHIN_MANAGEMENT_CLIENT_SECRET=your-management-client-secret
 ```
 
-Use the client to set and retrieve values. The ID is the Portal user ID returned by the SDK or userinfo:
+---
+
+## 3. Using the Laravel PHP SDK
+
+Install the official SDK if you haven't already:
+
+```bash
+composer require koamishin/auth-php
+```
+
+### Writing Metadata (Server-to-Server)
+
+Use `KoamishinManagementClient` to update either the `public` or `private` metadata bucket (or both):
 
 ```php
 use Koamishin\Auth\KoamishinManagementClient;
 
 $management = app(KoamishinManagementClient::class);
 
+// Update user metadata for a specific user ID
 $metadata = $management->updateUserMetadata(
-    id: $userId,
-    public: ['preferred_language' => 'en', 'time_zone' => 'Asia/Manila'],
-    private: ['billing_customer_id' => 'customer_123'],
+    id: $user->id,
+    public: [
+        'theme' => 'dark',
+        'locale' => 'en-US',
+        'plan' => 'pro',
+    ],
+    private: [
+        'stripe_customer_id' => 'cus_N9X123456789',
+        'kyc_status' => 'verified',
+    ],
 );
 
-$metadata = $management->getUserMetadata($userId);
-$language = $metadata['public']['preferred_language'] ?? 'en';
+// Returns the full updated metadata array:
+// [
+//     'public' => ['theme' => 'dark', 'locale' => 'en-US', 'plan' => 'pro'],
+//     'private' => ['stripe_customer_id' => 'cus_N9X123456789', 'kyc_status' => 'verified'],
+// ]
 ```
 
-Each supplied object **replaces that entire object**. An omitted argument leaves the corresponding object unchanged; an empty array clears it. Read and merge existing keys before updating if you intend to preserve them. Concurrent read-modify-write operations can still overwrite each other, so coordinate writers. JSON objects can contain nested JSON values; the combined serialized `public` and `private` objects and the request body are each limited to 16 KiB. SDK and Portal validation errors should be handled by the calling application.
+> **Bucket Replacement Behavior**:
+> Providing an array replaces that entire bucket. Omitted arguments leave the corresponding bucket untouched. Passing an empty array `public: []` completely clears that bucket. To perform partial updates, retrieve the existing metadata first and merge your changes.
 
-## 3. Read public values for the signed-in user
+### Reading Metadata (Server-to-Server)
 
-The PHP SDK requests `metadata:public` by default. Once the user has completed the OAuth flow, the SDK's `KoamishinUser` exposes `publicMetadata`:
+```php
+use Koamishin\Auth\KoamishinManagementClient;
+
+$management = app(KoamishinManagementClient::class);
+
+$metadata = $management->getUserMetadata($user->id);
+
+$stripeCustomerId = $metadata['private']['stripe_customer_id'] ?? null;
+$plan = $metadata['public']['plan'] ?? 'free';
+```
+
+### Accessing Public Metadata in Client Sessions
+
+When an end-user logs in through the authorization-code flow, the PHP SDK automatically requests the `metadata:public` scope. The authenticated `KoamishinUser` object exposes these values:
 
 ```php
 use Koamishin\Auth\Facades\Koamishin;
 
 $user = Koamishin::user();
-$language = $user?->publicMetadata['preferred_language'] ?? 'en';
+
+// Access public metadata directly from the session
+$theme = $user?->publicMetadata['theme'] ?? 'light';
+$plan = $user?->publicMetadata['plan'] ?? 'standard';
+
+if ($user?->publicMetadata['plan'] === 'pro') {
+    // Unlock premium features
+}
 ```
 
-The Portal returns public metadata in `/api/oauth/userinfo` only when the user token includes `metadata:public`. Private metadata is never included in userinfo. The authenticated user must still be a member of the organization and application environment at the time userinfo is requested.
+---
 
-## Use the HTTP API directly
+## 4. Using the JavaScript / TypeScript SDK
 
-A backend can request a Passport client-credentials token from `/oauth/token` with the management client ID, secret, and the scopes needed for its request. Send the resulting access token as a Bearer token to the Portal over HTTPS. For example, after securely obtaining a token with `metadata:read metadata:write`:
+Install the official JS client:
 
 ```bash
-curl --fail-with-body --silent --show-error \
-  --request PATCH \
-  --header 'Accept: application/json' \
-  --header 'Content-Type: application/json' \
-  --header "Authorization: Bearer ${MANAGEMENT_ACCESS_TOKEN}" \
-  --data '{"public":{"preferred_language":"en"},"private":{"billing_customer_id":"customer_123"}}' \
-  "${PORTAL_URL}/api/v1/users/${USER_ID}/metadata"
+npm install @koamishin/auth-js
 ```
 
-The response is `{ "data": { "public": { ... }, "private": { ... } } }`. Use `GET /api/v1/users/{id}/metadata` with `metadata:read` to retrieve it. An absent or inaccessible user returns 404; a missing grant or scope returns 403. Tokens are bound to the credential's application environment, so a user enrolled only in a different environment is not accessible through it.
+### Reading Public Metadata on the Frontend
 
-## React to metadata changes
+When authenticating via `@koamishin/auth-js`, public metadata is returned alongside standard claims:
 
-Create a webhook endpoint for the same application environment and subscribe to `user.updated`. A successful metadata change queues this event after the transaction commits. The payload includes that environment's public metadata and excludes private and legacy global metadata. Verify the signature over the raw request body and make the handler idempotent; see [webhooks](core-concepts.mdx#webhooks) and the [PHP SDK guide](laravel-sdk.mdx).
+```typescript
+import { KoamishinClient } from '@koamishin/auth-js';
+
+const client = new KoamishinClient({
+    portalUrl: 'https://auth.example.com',
+    clientId: 'your-client-id',
+    redirectUri: window.location.origin + '/callback',
+    scopes: ['openid', 'profile', 'email', 'metadata:public'],
+});
+
+// After successful code exchange or token retrieval:
+const user = await client.getUser();
+
+console.log('User ID:', user.sub);
+console.log('Public Preferences:', user.public_metadata);
+// Example output: { theme: 'dark', plan: 'pro' }
+```
+
+---
+
+## 5. Direct REST API Reference
+
+For languages without an official SDK (Python, Go, Node.js, C#, Ruby), interact directly with the REST endpoints.
+
+### Step A: Obtain a Management Access Token
+
+Request an OAuth2 Client Credentials grant from the Portal:
+
+```bash
+curl -X POST "https://auth.example.com/oauth/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials" \
+  -d "client_id=YOUR_MANAGEMENT_CLIENT_ID" \
+  -d "client_secret=YOUR_MANAGEMENT_CLIENT_SECRET" \
+  -d "scope=metadata:read metadata:write"
+```
+
+**Response (HTTP 200)**:
+
+```json
+{
+    "token_type": "Bearer",
+    "expires_in": 3600,
+    "access_token": "eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIs..."
+}
+```
+
+### Step B: Read User Metadata
+
+```bash
+curl -X GET "https://auth.example.com/api/v1/users/{userId}/metadata" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Accept: application/json"
+```
+
+**Response (HTTP 200)**:
+
+```json
+{
+    "data": {
+        "public": {
+            "theme": "dark",
+            "preferred_locale": "en"
+        },
+        "private": {
+            "stripe_customer_id": "cus_12345"
+        }
+    }
+}
+```
+
+### Step C: Update User Metadata
+
+```bash
+curl -X PATCH "https://auth.example.com/api/v1/users/{userId}/metadata" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json" \
+  -d '{
+    "public": {
+      "theme": "system",
+      "notification_frequency": "weekly"
+    },
+    "private": {
+      "stripe_customer_id": "cus_12345",
+      "erp_account_number": "ACT-9081"
+    }
+  }'
+```
+
+**Response (HTTP 200)**:
+
+```json
+{
+    "data": {
+        "public": {
+            "theme": "system",
+            "notification_frequency": "weekly"
+        },
+        "private": {
+            "stripe_customer_id": "cus_12345",
+            "erp_account_number": "ACT-9081"
+        }
+    }
+}
+```
+
+---
+
+## 6. Realtime Webhook Synchronization
+
+Whenever an application's user metadata is updated, the Portal automatically dispatches a signed Svix-compliant webhook event: `user.updated`.
+
+### Webhook Payload Example
+
+```json
+{
+    "id": "evt_01HXYZ1234567890",
+    "event": "user.updated",
+    "timestamp": 1714000000,
+    "data": {
+        "id": "14",
+        "name": "Jane Doe",
+        "email": "jane@example.com",
+        "application_id": 1,
+        "environment": "production",
+        "public_metadata": {
+            "theme": "system",
+            "notification_frequency": "weekly"
+        }
+    }
+}
+```
+
+> **Security Note**: Webhook payloads deliberately include only `public_metadata`. `private_metadata` is never dispatched across webhook endpoints to avoid unintended data leakage to third-party receivers.
+
+---
+
+## 7. Limitations & Validation Rules
+
+- **Payload Size Limits**: The total combined serialized JSON size of `public` and `private` metadata is limited to **16 KiB** per user per application environment. Requests exceeding this limit return HTTP `413 Payload Too Large`.
+- **Top-Level Types**: Both `public` and `private` bodies must be valid JSON objects (key-value maps). Passing arrays or scalar primitives at the root level will result in HTTP `422 Unprocessable Entity`.
+- **Environment Isolation**: Metadata stored in `development` is completely separate from `production`. Changing a user's metadata in the staging environment will never impact production data.

@@ -1,33 +1,123 @@
 ---
-title: Deployment and operations
-description: Deploy the Laravel application, initialize an administrator, and operate subsequent releases.
+title: Production Deployment & Operations
+description: Comprehensive production deployment guide for Docker Compose, traditional Linux servers, and cloud infrastructure.
 ---
 
-# Deployment and operations
+# Production Deployment & Operations
 
-This guide deploys the Laravel application to a server with PHP-FPM and a web server. You can use another host or Octane, but you must adapt and verify its process, storage, and proxy configuration. The [Astro landing and documentation](landing.mdx) are built and hosted separately.
+This guide covers deploying Koamishin Portal to production environments with high availability, secure secret management, background queue workers, and automated release strategies.
 
-Review [tenancy and OAuth integration](core-concepts.mdx) before connecting real users: application-environment checks cover the documented OAuth, management, and webhook flows, while other Portal features are not automatically tenant-isolated. The advertised OpenID Connect endpoints do not implement the complete OIDC flow. Plan a staging deployment and validate the security and integration behavior needed by your applications before exposing the service.
+---
 
-## 1. Prepare the host
+## Production Architecture Overview
 
-- Provision PHP 8.5, Composer 2, Node.js 22.18 or later in the Node 22 series, and npm. The root frontend build's Vite Plus dependency also supports Node 20.19+ and Node 24.11+, but not every intervening release. Install the PHP extensions required by the locked Composer dependencies and the driver for your database. The frontend build requires PHP because it generates Wayfinder routes.
-- Provision a database, a mail transport, and a queue backend. The default `.env.example` uses SQLite and database-backed queues, sessions, and cache; configure alternatives if required. Use private networking and credentials for shared services.
-- Create a DNS name and an HTTPS endpoint, for example `auth.example.com`. Configure the web server to serve only the Laravel `public/` directory, or put the app behind a correctly configured TLS-terminating proxy. Do not expose the project root, `.env`, `storage/`, or Passport private key.
-- Make `storage/` and `bootstrap/cache/` writable by the application process. Persist `storage/` across releases, including uploads and Passport keys. Protect it from public access except for the intended `public/storage` link. Share the same key material and compatible storage with all instances.
-
-The web server, worker, and deployment commands must use the same application configuration. Set up access restrictions so only an administrator can reach a new deployment until initialization is complete.
-
-## 2. Configure a fresh installation
-
-From a fresh checkout on the deployment host or build machine, install the production PHP dependencies and create an environment file if one does not already exist:
-
-```bash
-composer install --no-dev --optimize-autoloader --no-interaction
-test -f .env || cp .env.example .env
+```
+                                  +-------------------------------------------+
+                                  |         Internet (HTTPS / TLS 443)        |
+                                  +-------------------------------------------+
+                                                        |
+                                                        v
+                                  +-------------------------------------------+
+                                  |   Reverse Proxy (Nginx / Caddy / Cloud)   |
+                                  |          SSL/TLS Termination              |
+                                  +-------------------------------------------+
+                                                        |
+                                +-----------------------+-----------------------+
+                                |                                               |
+                                v                                               v
+                 +-----------------------------+                 +-----------------------------+
+                 |   Koamishin Web / Octane    |                 |   Background Queue Worker   |
+                 |     FrankenPHP / PHP-FPM    |                 |    (Supervisor / Systemd)   |
+                 +-----------------------------+                 +-----------------------------+
+                                |                                               |
+                                +-----------------------+-----------------------+
+                                                        |
+                                                        v
+                                +-----------------------------------------------+
+                                |               Data & Cache Tier               |
+                                |     - PostgreSQL 17 (Primary Database)        |
+                                |     - Redis 7+ (Sessions, Cache, Queues)      |
+                                |     - Persistent Volume (OAuth RSA Keys)      |
+                                +-----------------------------------------------+
 ```
 
-Edit `.env` privately. The following illustrates the settings to review; replace every example with values for your host and provision the corresponding services first:
+---
+
+## Deployment Option A: Docker Compose (Production Stack)
+
+The bundled container architecture is based on **Laravel Octane (FrankenPHP)**, providing multi-worker concurrency with minimal memory overhead.
+
+### 1. Production Docker Compose Configuration
+
+Create a dedicated `docker-compose.prod.yml` on your server:
+
+```yaml
+services:
+    portal:
+        image: ghcr.io/koamishin/koamishin-portal:latest
+        restart: unless-stopped
+        ports:
+            - '127.0.0.1:8000:8000'
+        env_file: .env.production
+        volumes:
+            - portal_storage:/app/storage
+        depends_on:
+            pgsql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+
+    queue:
+        image: ghcr.io/koamishin/koamishin-portal:latest
+        restart: unless-stopped
+        command: php artisan queue:work redis --sleep=3 --tries=3 --timeout=60 --no-interaction
+        env_file: .env.production
+        volumes:
+            - portal_storage:/app/storage
+        depends_on:
+            pgsql:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+
+    pgsql:
+        image: postgres:17-alpine
+        restart: unless-stopped
+        environment:
+            POSTGRES_DB: koamishin_portal
+            POSTGRES_USER: ${DB_USERNAME}
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+        volumes:
+            - pgsql_data:/var/lib/postgresql/data
+        healthcheck:
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U ${DB_USERNAME} -d koamishin_portal',
+                ]
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    redis:
+        image: redis:7-alpine
+        restart: unless-stopped
+        command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD}', 'ping']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+volumes:
+    portal_storage:
+    pgsql_data:
+    redis_data:
+```
+
+### 2. Production Environment File (`.env.production`)
 
 ```dotenv
 APP_NAME="Koamishin Portal"
@@ -35,108 +125,245 @@ APP_ENV=production
 APP_DEBUG=false
 APP_URL=https://auth.example.com
 
+# Key must be generated once and kept stable
+APP_KEY=base64:YOUR_GENERATED_32_BYTE_BASE64_KEY
+
+# Database
 DB_CONNECTION=pgsql
-DB_HOST=database.internal
+DB_HOST=pgsql
 DB_PORT=5432
 DB_DATABASE=koamishin_portal
-DB_USERNAME=portal
-DB_PASSWORD=replace-with-a-secret
+DB_USERNAME=portal_user
+DB_PASSWORD=YOUR_STRONG_POSTGRES_PASSWORD
 
-SESSION_DRIVER=database
-CACHE_STORE=database
-QUEUE_CONNECTION=database
+# Redis & Queues
+REDIS_HOST=redis
+REDIS_PORT=6379
+REDIS_PASSWORD=YOUR_STRONG_REDIS_PASSWORD
 
+QUEUE_CONNECTION=redis
+SESSION_DRIVER=redis
+CACHE_STORE=redis
+
+# Production Mail
 MAIL_MAILER=smtp
-MAIL_HOST=mail.internal
+MAIL_HOST=smtp.sendgrid.net
 MAIL_PORT=587
-MAIL_USERNAME=replace-with-a-username
-MAIL_PASSWORD=replace-with-a-secret
-MAIL_FROM_ADDRESS=portal@example.com
-MAIL_FROM_NAME="${APP_NAME}"
+MAIL_USERNAME=apikey
+MAIL_PASSWORD=YOUR_SENDGRID_OR_RESEND_API_KEY
+MAIL_ENCRYPTION=tls
+MAIL_FROM_ADDRESS=auth@example.com
+MAIL_FROM_NAME="Koamishin Identity"
+
+# Session Security
+SESSION_ENCRYPT=true
+SESSION_PATH=/
+SESSION_DOMAIN=.example.com
 ```
 
-Use the mail provider's required scheme and authentication settings. Configure trusted proxies and secure cookies for your actual topology; check generated HTTPS links and passkeys using the public `APP_URL`. See [configuration](../getting-started/configuration.mdx) for the available service settings. Never commit `.env` or put secrets in the Astro build.
-
-Generate the Laravel application key **once for a new instance**:
+### 3. Deploy and Initialize
 
 ```bash
-php artisan key:generate --no-interaction
+# 1. Start database and cache
+docker compose -f docker-compose.prod.yml up -d pgsql redis
+
+# 2. Run migrations
+docker compose -f docker-compose.prod.yml run --rm portal php artisan migrate --force --no-interaction
+docker compose -f docker-compose.prod.yml run --rm portal php artisan module:migrate --all --force --no-interaction
+
+# 3. Generate OAuth RSA keys inside persistent volume (RUN ONCE)
+docker compose -f docker-compose.prod.yml run --rm portal php artisan passport:keys --no-interaction
+
+# 4. Start portal and queue workers
+docker compose -f docker-compose.prod.yml up -d portal queue
 ```
 
-Keep `APP_KEY` secret, back it up, and keep it stable across releases and all application and worker instances. Changing it can invalidate encrypted data and sessions. Do not run this command during a routine update or when restoring an existing installation.
+---
 
-## 3. Build and initialize the application
+## Deployment Option B: Ubuntu / Debian Linux Host (Nginx + PHP-FPM)
 
-Install the locked frontend dependencies, including development dependencies, and build the assets. Then apply the application and enabled module migrations and create the public storage link:
+For traditional VPS environments (AWS EC2, DigitalOcean, Hetzner, Linode):
+
+### 1. Install System Dependencies
 
 ```bash
+sudo apt update && sudo apt install -y \
+  nginx \
+  php8.5-fpm \
+  php8.5-pgsql \
+  php8.5-redis \
+  php8.5-mbstring \
+  php8.5-xml \
+  php8.5-bcmath \
+  php8.5-curl \
+  php8.5-zip \
+  php8.5-pcntl \
+  supervisor \
+  certbot \
+  python3-certbot-nginx
+```
+
+### 2. Configure Nginx Virtual Host
+
+Create `/etc/nginx/sites-available/koamishin-portal.conf`:
+
+```nginx
+server {
+    listen 80;
+    server_name auth.example.com;
+    root /var/www/koamishin-portal/public;
+
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header Referrer-Policy "strict-origin-when-cross-origin";
+
+    index index.php;
+    charset utf-8;
+
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+
+    location = /favicon.ico { access_log off; log_not_found off; }
+    location = /robots.txt  { access_log off; log_not_found off; }
+
+    error_page 404 /index.php;
+
+    location ~ \.php$ {
+        fastcgi_pass unix:/var/run/php/php8.5-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;
+        include fastcgi_params;
+        fastcgi_hide_header X-Powered-By;
+    }
+
+    location ~ /\.(?!well-known).* {
+        deny all;
+    }
+}
+```
+
+Enable the site and obtain a free Let's Encrypt SSL certificate:
+
+```bash
+sudo ln -s /etc/nginx/sites-available/koamishin-portal.conf /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+sudo certbot --nginx -d auth.example.com
+```
+
+### 3. Configure Background Queue Supervisor
+
+Create `/etc/supervisor/conf.d/koamishin-worker.conf`:
+
+```ini
+[program:koamishin-worker]
+process_name=%(program_name)s_%(process_num)02d
+command=php /var/www/koamishin-portal/artisan queue:work redis --sleep=3 --tries=3 --timeout=60 --no-interaction
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=2
+redirect_stderr=true
+stdout_logfile=/var/log/supervisor/koamishin-worker.log
+stopwaitsecs=3600
+```
+
+Load and start the worker processes:
+
+```bash
+sudo supervisorctl reread
+sudo supervisorctl update
+sudo supervisorctl start koamishin-worker:*
+```
+
+---
+
+## Zero-Downtime Release Sequence
+
+When deploying application updates, run the following command sequence to ensure zero disruption and clear caches safely:
+
+```bash
+cd /var/www/koamishin-portal
+
+# 1. Pull latest release or checkout new release directory
+git pull origin main
+
+# 2. Install production dependencies
+composer install --no-dev --optimize-autoloader --no-interaction
 npm ci
 npm run build
+
+# 3. Put portal in maintenance mode (optional, skips if using atomic symlink)
+php artisan down --render="errors::503"
+
+# 4. Run database migrations
 php artisan migrate --force --no-interaction
 php artisan module:migrate --all --force --no-interaction
-php artisan storage:link --no-interaction
-php artisan optimize --no-interaction
+
+# 5. Clear and rebuild compiled caches
+php artisan optimize:clear --no-interaction
+php artisan config:cache --no-interaction
+php artisan route:cache --no-interaction
+php artisan view:cache --no-interaction
+php artisan event:cache --no-interaction
+
+# 6. Gracefully restart queue workers
+php artisan queue:restart --no-interaction
+
+# 7. Bring portal back online
+php artisan up
 ```
 
-The root `npm run build` generates Wayfinder routes before compiling assets into `public/build/`. Deploy those assets with the matching code and PHP dependencies. `module:migrate` applies enabled module migrations; Blog is enabled in the committed `modules_statuses.json`. If the storage link already exists, verify that it points to the persistent `storage/app/public` directory rather than replacing it blindly.
+---
 
-Do **not** use `composer run setup` for a production installation. It regenerates `APP_KEY` and runs the default seeder, which creates known-password accounts, including a super administrator. See [installation](../getting-started/installation.mdx) for details.
+## Critical Production Safeguards
 
-## 4. Start services and create the first administrator
+### 1. Persistent Storage & Encryption Keys
 
-1. Start PHP-FPM and the web server with the document root set to the release's `public/` directory. Configure TLS and proxy headers for your host. The [Laravel deployment guide](https://laravel.com/docs/13.x/deployment) contains a web-server configuration example.
-2. While access is restricted, open `https://auth.example.com/setup` using your actual domain. Enter the instance name and a strong, unique administrator password. The wizard creates a `super_admin` and signs that user into `/admin`.
-3. Confirm that `storage/oauth-private.key` and `storage/oauth-public.key` both exist, that the application can read them, and that the private key is not publicly accessible. On a fresh install the wizard generates them when the public key is absent. If only one key is present on an existing installation, restore the pair before opening the wizard: it invokes `passport:keys --force` when the public key is missing and can overwrite the private key.
-4. Start a supervised queue worker with the same environment and code as the application. For example, run the following command under your process manager and configure it to restart after exit:
+The following files and paths must **never** be deleted or regenerated during updates:
 
-    ```bash
-    php artisan queue:work --tries=3 --timeout=60 --no-interaction
-    ```
+| Path                        | Purpose                                          | Recovery Requirement                                             |
+| :-------------------------- | :----------------------------------------------- | :--------------------------------------------------------------- |
+| `storage/oauth-private.key` | Signs RS256 JWT access and identity tokens       | If lost, all active client sessions and tokens are invalidated.  |
+| `storage/oauth-public.key`  | Verifies JWT signatures via `/oauth/jwks`        | Must match `oauth-private.key`.                                  |
+| `.env` (`APP_KEY`)          | Encrypts database cookies, sessions, and secrets | If changed, all encrypted user fields and session cookies break. |
+| `storage/app/public`        | User avatars, custom logos, and uploads          | Must be backed up and symlinked to `public/storage`.             |
 
-5. Confirm the `/up` endpoint responds, sign in to the admin panel, and test email delivery and the relevant authentication flow. `/up` checks that Laravel can respond; it does not replace checks for the database, queue, mail, or connected applications. Remove the temporary access restriction only when your validation is complete.
+### 2. Restricting the `/setup` Wizard
 
-The wizard is available whenever no user has the `super_admin` role. Keep a secured super administrator and control who can manage roles, because removing the last one reopens setup.
+The `/setup` interactive wizard is active **only when no user has the `super_admin` role**.
 
-The example worker timeout assumes the default database or Redis `retry_after` of 90 seconds. The worker or per-job timeout must be several seconds shorter than the queue's retry interval to avoid the same job being processed twice. Install PHP's PCNTL extension for worker timeouts and adjust the values to suit your jobs; see the [Laravel queue documentation](https://laravel.com/docs/13.x/queues#job-expirations-and-timeouts). Webhook delivery is queued and needs a running worker.
+- Once your super administrator account is created, `/setup` automatically responds with a redirect to the home page or dashboard.
+- **Auditing**: Ensure at least one active account retains the `super_admin` role. If you revoke all `super_admin` roles, the setup wizard will reopen to public visitors.
 
-If your deployment uses scheduled tasks, run `php artisan schedule:run --no-interaction` every minute through your host's scheduler. Monitor application logs, failed jobs, worker availability, disk usage, mail, and backups.
+### 3. Automated Database Backups
 
-## 5. Deploy an update
+Schedule regular automated PostgreSQL backups using cron:
 
-1. Back up the database, persistent files, `APP_KEY`, and both Passport keys. Test restoration separately and plan a rollback, especially for irreversible migrations.
-2. Deploy the new code, locked Composer dependencies, and matching built assets. Preserve the existing environment file and persistent storage; do not regenerate keys or run the default seeder.
-3. Apply migrations and refresh caches:
+```bash
+# Add to /etc/cron.daily/backup-koamishin
+#!/bin/bash
+BACKUP_DIR="/var/backups/koamishin"
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+mkdir -p "$BACKUP_DIR"
 
-    ```bash
-    php artisan migrate --force --no-interaction
-    php artisan module:migrate --all --force --no-interaction
-    php artisan optimize:clear --no-interaction
-    php artisan optimize --no-interaction
-    php artisan queue:restart --no-interaction
-    ```
+# Dump database
+pg_dump -U portal_user -h localhost koamishin_portal | gzip > "$BACKUP_DIR/db_$TIMESTAMP.sql.gz"
 
-4. Restart or reload long-running application processes as appropriate for your host. If using Octane, reload its workers after deploying code and configuration. Ensure the process manager restarts the queue workers after `queue:restart`.
-5. Check `/up`, sign in, and verify the affected integration and queue jobs. Keep the database and storage backups needed by your rollback plan.
+# Retain last 14 days
+find "$BACKUP_DIR" -type f -mtime +14 -name "*.sql.gz" -exec rm {} +
+```
 
-Test this release sequence in staging. Laravel caches configuration, so rebuild caches and restart long-running processes when environment values change. Keep secrets and backups access-controlled, and rehearse restoration of the database, uploaded files, `APP_KEY`, and Passport keys together.
+---
 
-## Upgrade an existing integration to scoped access
+## Healthchecks & Monitoring
 
-This release changes authentication and webhook behavior. Test the upgrade in staging with a database backup and a representative connected application before applying it to production:
+Koamishin Portal provides standard monitoring endpoints:
 
-1. Inventory each application's OAuth client and its intended development or production environment. The migration backfills a legacy selected-environment client only when the existing mapping is unambiguous. Conflicting, duplicate, missing, or unmapped clients remain denied; inspect and repair them deliberately before enabling traffic. Do not map one OAuth client to multiple application environments.
-2. Confirm that every intended user belongs to the organization and the correct application environment. Existing accounts are not automatically enrolled in every environment. Use the Dashboard import workflow with **Update details if user email already exists** disabled, or use a scoped management credential with `memberships:write` to enroll existing organization members. Check that the user IDs and target environment are correct first.
-3. Update each Laravel consumer to an SDK version containing these changes, configure `KOAMISHIN_APPLICATION_ID` and `KOAMISHIN_ENVIRONMENT`, and test login, refresh, and membership removal. The `/api/user` response is now the same scope-filtered userinfo shape as `/api/oauth/userinfo`, rather than the raw user model. Ensure other clients handle the new claims before deploying.
-4. Legacy global `users.metadata` is no longer returned by userinfo or webhooks. Decide which values belong in each application environment, validate them, and migrate them explicitly using the management API; private and public metadata are separate objects.
-5. Assign every existing webhook endpoint to its intended application environment. Unassigned endpoints receive no user events. Legacy signing remains the default, but the scoped payload shape changes and already-queued unscoped user events are discarded. Update and test receivers and their idempotency handling before restarting workers.
-6. Create separate least-privilege management credentials for services that need the management API, and store the one-time secrets securely. Check userinfo, management access, webhook delivery, and token revocation in each environment.
-
-The migration does not establish tenant isolation for unrelated Portal features. See [tenancy and OAuth](core-concepts.mdx) for the precise boundaries and [Laravel SDK integration](laravel-sdk.mdx) for configuration.
-
-## Bundled containers
-
-`docker-compose.yml` defines an Octane/FrankenPHP portal, queue worker, PostgreSQL 17, Redis, and persistent volumes. It does not run migrations or a scheduler, and its default application key and database password are placeholders. Supply unique secrets and consistent application, mail, and URL configuration to every service.
-
-Treat the Docker configuration as a starting point rather than a production-ready deployment. There is no `.dockerignore`, and the Dockerfile copies its build context, so local `.env`, keys, and other sensitive files can enter image layers. Exclude them before building. The startup script checks `/var/www/html` while the image uses `/app`; the health check uses `ROOT` although the Dockerfile declares it only as a build argument. The Compose worker supplies an explicit command, bypassing the startup script, and its default `--timeout=90` equals the default Redis retry interval. Correct and validate these assumptions, worker settings, storage, migrations, networking, and health checks before exposure. Horizon and Pulse are not installed dependencies.
-
-The workflows in `.github/workflows/` cover CI and release automation. Review their triggers, permissions, registry configuration, and secrets before enabling them in your repository.
+- **HTTP Status Check**: `GET /up`
+  Returns HTTP 200 `OK` when the Laravel kernel boots successfully. Ideal for AWS ALB, Kubernetes liveness probes, or Cloudflare health monitors.
+- **OIDC Discovery**: `GET /.well-known/openid-configuration`
+  Returns RFC-compliant OpenID Connect discovery metadata.
+- **JWKS Endpoint**: `GET /oauth/jwks`
+  Exposes the public RS256 key set.

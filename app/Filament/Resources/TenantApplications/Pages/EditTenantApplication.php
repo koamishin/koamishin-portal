@@ -26,7 +26,7 @@ class EditTenantApplication extends EditRecord
         return DB::transaction(function () use ($record, $data): Model {
             $configuration = $record->environments()->where('environment', $data['environment'])->firstOrFail();
             $client = $configuration->oauthClient;
-            abort_unless($client && ! $client->revoked, 409, 'The selected environment has no active OAuth client.');
+            abort_unless($client && ! $client->getAttribute('revoked'), 409, 'The selected environment has no active OAuth client.');
 
             $client->forceFill(['redirect_uris' => $data['redirect_uris']])->save();
             $configuration->update(['redirect_uris' => $data['redirect_uris']]);

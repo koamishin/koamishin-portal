@@ -15,6 +15,9 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 
+use function Pest\Laravel\assertDatabaseHas;
+use function Pest\Laravel\travelTo;
+
 function webhookEnvironment(string $slug, string $environment = 'development'): TenantApplicationEnvironment
 {
     $tenant = Tenant::query()->create(['name' => $slug, 'slug' => $slug, 'is_active' => true]);
@@ -34,7 +37,7 @@ test('webhooks only reach the enrolled application environment and exclude globa
     $environment = webhookEnvironment('alpha');
     $other = webhookEnvironment('beta');
 
-    $endpoint = WebhookEndpoint::create([
+    $endpoint = WebhookEndpoint::query()->create([
         'name' => 'Internal Service',
         'url' => 'https://service.internal/webhook',
         'secret' => 'whsec_secret123',
@@ -42,7 +45,7 @@ test('webhooks only reach the enrolled application environment and exclude globa
         'events' => ['user.created'],
         'is_active' => true,
     ]);
-    WebhookEndpoint::create([
+    WebhookEndpoint::query()->create([
         'name' => 'Other Service',
         'url' => 'https://other.internal/webhook',
         'secret' => 'whsec_secret123',
@@ -50,7 +53,7 @@ test('webhooks only reach the enrolled application environment and exclude globa
         'events' => ['user.created'],
         'is_active' => true,
     ]);
-    WebhookEndpoint::create([
+    WebhookEndpoint::query()->create([
         'name' => 'Unassigned Service',
         'url' => 'https://unassigned.internal/webhook',
         'secret' => 'whsec_secret123',
@@ -117,7 +120,7 @@ test('dispatch webhook job sends svix headers and logs delivery', function (): v
         'https://service.internal/webhook' => Http::response(['received' => true], 200),
     ]);
 
-    $endpoint = WebhookEndpoint::create([
+    $endpoint = WebhookEndpoint::query()->create([
         'name' => 'Internal Service',
         'url' => 'https://service.internal/webhook',
         'secret' => 'whsec_secret123',
@@ -173,7 +176,7 @@ test('webhook retries preserve the message id across serialized attempts', funct
             ->push([], 200),
     ]);
 
-    $endpoint = WebhookEndpoint::create([
+    $endpoint = WebhookEndpoint::query()->create([
         'name' => 'Internal Service',
         'url' => 'https://service.internal/webhook',
         'secret' => 'whsec_secret123',
@@ -193,11 +196,11 @@ test('webhook retries preserve the message id across serialized attempts', funct
 });
 
 test('standard webhook signatures use the decoded secret', function (): void {
-    $this->travelTo(Carbon::createFromTimestampUTC(1704067200));
+    travelTo(Carbon::createFromTimestampUTC(1704067200));
     Http::preventStrayRequests();
     Http::fake(['https://service.internal/webhook' => Http::response([], 200)]);
 
-    $endpoint = WebhookEndpoint::create([
+    $endpoint = WebhookEndpoint::query()->create([
         'name' => 'Standard Service',
         'url' => 'https://service.internal/webhook',
         'secret' => 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
@@ -217,12 +220,12 @@ test('standard webhook signatures use the decoded secret', function (): void {
         && $request->hasHeader('webhook-id', 'msg_test')
         && $request->hasHeader('webhook-timestamp', '1704067200')
         && $request->hasHeader('webhook-signature', 'v1,kJubUpa7OY1UCYWr4LYfuGjMy4ykhkg50ZTMm2zckMw='));
-    $this->assertDatabaseHas('webhook_deliveries', ['webhook_endpoint_id' => $endpoint->id, 'message_id' => 'msg_test', 'status' => 'delivered']);
+    assertDatabaseHas('webhook_deliveries', ['webhook_endpoint_id' => $endpoint->id, 'message_id' => 'msg_test', 'status' => 'delivered']);
 });
 
 test('standard webhooks reject malformed signing secrets', function (): void {
     Http::preventStrayRequests();
-    $endpoint = WebhookEndpoint::create([
+    $endpoint = WebhookEndpoint::query()->create([
         'name' => 'Standard Service',
         'url' => 'https://service.internal/webhook',
         'secret' => 'not-a-standard-secret',

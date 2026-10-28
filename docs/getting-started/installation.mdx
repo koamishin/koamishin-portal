@@ -1,21 +1,107 @@
 ---
-title: Install locally
-description: Install Koamishin Portal, create the first administrator, and register an application.
+title: Installation & Getting Started
+description: Quickstart guide to deploying Koamishin Portal using Docker or manual installation.
 ---
 
-# Install locally
+# Installation & Getting Started
 
-This guide starts a new, unseeded instance on your computer using SQLite. You will create an administrator, an organization, and an application record. For a public server, use [deployment and operations](../guides/ci-cd.mdx) instead.
+Koamishin Portal is a self-hosted, centralized identity provider and user management service. It allows organizations to manage user authentication, multi-factor security, and OAuth2/OIDC connections across multiple internal applications.
 
-## Prerequisites
+Choose your preferred setup method:
 
-- PHP 8.5 with the extensions required by the locked Composer dependencies, including PDO SQLite for the SQLite setup below. Composer declares PHP `^8.3`; the project's CI tests PHP 8.4 and 8.5.
-- Composer 2, Git, and npm.
-- Node.js 22.18 or later within the 22.x series, or Node.js 24.11 or later. The locked Vite Plus version also supports Node.js 20.19 or later within 20.x.
+- [Method 1: Docker Compose (Recommended)](#method-1-docker-compose-recommended) — Instant setup with Octane, PostgreSQL 17, and Redis.
+- [Method 2: Manual Local Setup](#method-2-manual-local-setup) — Standard installation with PHP 8.4/8.5, SQLite/PostgreSQL, and Node.js.
 
-Check your tools with `php -v`, `composer --version`, `node --version`, and `npm --version`. If Composer reports a missing extension, install or enable it for the PHP executable you use on the command line.
+---
 
-## 1. Get the source and install PHP dependencies
+## System Requirements
+
+Before beginning, ensure your environment meets the minimum requirements:
+
+| Component    | Minimum Version                            | Notes                                                                                            |
+| :----------- | :----------------------------------------- | :----------------------------------------------------------------------------------------------- |
+| **PHP**      | 8.4 or 8.5                                 | Required extensions: `pdo`, `mbstring`, `openssl`, `bcmath`, `curl`, `redis` (optional), `pcntl` |
+| **Composer** | 2.5+                                       | Dependency manager for PHP                                                                       |
+| **Node.js**  | 22.18+ (22.x) or 24.11+                    | Vite Plus asset bundling                                                                         |
+| **Database** | PostgreSQL 17, MySQL 8.4+, or SQLite 3.35+ | PostgreSQL 17 is default in Docker                                                               |
+| **Redis**    | 7.0+                                       | Recommended for session cache and queue worker                                                   |
+
+---
+
+## Method 1: Docker Compose (Recommended)
+
+The fastest way to run Koamishin Portal locally or in self-hosted staging is with the bundled Docker Compose stack.
+
+### 1. Clone Repository & Copy Environment
+
+```bash
+git clone https://github.com/koamishin/koamishin-portal.git
+cd koamishin-portal
+cp .env.example .env
+```
+
+### 2. Configure Environment Settings
+
+Open `.env` in your text editor and ensure the following variables are configured:
+
+```dotenv
+APP_NAME="Koamishin Portal"
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=http://localhost:8000
+
+# Database Configuration
+DB_CONNECTION=pgsql
+DB_HOST=pgsql
+DB_PORT=5432
+DB_DATABASE=koamishin_portal
+DB_USERNAME=portal
+DB_PASSWORD=secret_password_here
+
+# Redis Configuration
+REDIS_HOST=redis
+REDIS_PORT=6379
+
+# Queue & Session
+QUEUE_CONNECTION=redis
+SESSION_DRIVER=redis
+CACHE_STORE=redis
+```
+
+### 3. Launch the Stack
+
+```bash
+docker compose up -d
+```
+
+Docker Compose will start:
+
+- **`portal`**: High-performance Laravel Octane (FrankenPHP) application server on port `8000`.
+- **`queue`**: Dedicated background worker for asynchronous webhook deliveries and email jobs.
+- **`pgsql`**: PostgreSQL 17 database with persistent storage volume.
+- **`redis`**: In-memory Redis instance for queues and session management.
+
+### 4. Run Migrations & Generate Keys
+
+Initialize the database schema and OAuth encryption keys inside the container:
+
+```bash
+docker compose exec portal php artisan key:generate --no-interaction
+docker compose exec portal php artisan migrate --force --no-interaction
+docker compose exec portal php artisan module:migrate --all --force --no-interaction
+docker compose exec portal php artisan passport:keys --no-interaction
+docker compose exec portal php artisan storage:link --no-interaction
+```
+
+Now proceed to [Step 3: First-Run Setup Wizard](#step-3-first-run-setup-wizard).
+
+---
+
+## Method 2: Manual Local Setup
+
+For local development or custom bare-metal environments:
+
+### 1. Clone & Install PHP Dependencies
 
 ```bash
 git clone https://github.com/koamishin/koamishin-portal.git
@@ -23,22 +109,37 @@ cd koamishin-portal
 composer install
 ```
 
-Run the remaining commands from the repository root. `composer install` uses the committed lockfile and installs the packages used for local development.
+### 2. Configure Local Environment & Database
 
-## 2. Configure the new instance
-
-For a fresh checkout, create `.env` from the example:
+Copy the example environment file and set up SQLite (or configure PostgreSQL/MySQL):
 
 ```bash
 cp .env.example .env
+touch database/database.sqlite
 ```
 
-Set `APP_URL=http://localhost:8000` in `.env` if you plan to use the default development server. Leave `DB_CONNECTION=sqlite` for this walkthrough. The URL matters for generated links and passkey origins. Configure mail before trying email verification or password resets; the example SMTP host expects a local mail service. See [configuration](configuration.mdx) for other options.
+Ensure your `.env` contains:
 
-Create the database file, application key, schema, Passport keys, and public storage link:
+```dotenv
+APP_NAME="Koamishin Portal"
+APP_ENV=local
+APP_DEBUG=true
+APP_URL=http://localhost:8000
+
+DB_CONNECTION=sqlite
+DB_DATABASE=/absolute/path/to/database/database.sqlite
+
+SESSION_DRIVER=database
+QUEUE_CONNECTION=database
+CACHE_STORE=database
+MAIL_MAILER=log
+```
+
+### 3. Initialize Keys & Database Schema
+
+Run the following commands:
 
 ```bash
-touch database/database.sqlite
 php artisan key:generate --no-interaction
 php artisan migrate --no-interaction
 php artisan module:migrate --all --force --no-interaction
@@ -46,38 +147,102 @@ php artisan passport:keys --no-interaction
 php artisan storage:link --no-interaction
 ```
 
-The module migration command applies migrations for enabled modules; Blog is enabled in the committed module status file. `storage:link` makes files stored on Laravel's public disk accessible through `public/storage`.
+> 💡 **Notice**: `php artisan passport:keys` generates the RSA public/private key pair used for signing RS256 JWT tokens. Keep these files safe in `storage/`.
 
-These key-generation commands are for a **new** installation. Do not overwrite an existing `.env`, regenerate `APP_KEY`, or replace Passport keys on an established instance without a recovery and rotation plan. The wizard generates Passport keys if the public key is missing; in that case it uses `--force`, which can replace an existing private key. Keep both keys together.
+### 4. Build Frontend Assets & Start Server
 
-## 3. Install frontend dependencies and start the portal
+Install JavaScript dependencies and compile the Vue 3 + Inertia frontend:
 
 ```bash
 npm ci
 npm run build
+```
+
+Start the local development server:
+
+```bash
 composer run dev
 ```
 
-Leave this terminal running. `composer run dev` starts the Laravel development server, queue listener, Pail log viewer, and Vite. Open `http://localhost:8000/setup` in your browser. Stop the processes with `Ctrl+C` when finished.
+This concurrently runs:
 
-## 4. Create the first administrator
+- Laravel local HTTP server (`http://localhost:8000`)
+- Queue worker (`php artisan queue:listen`)
+- Vite dev server with Hot Module Replacement (HMR)
+- Laravel Pail log stream
 
-On the setup page, enter the instance name, administrator name, email address, and a password with its confirmation, then select **Initialize Portal & Launch**. The wizard creates a verified user with the `super_admin` role, signs them in, and redirects to `/admin`. Choose a strong password and keep the instance private until this step is complete.
+---
 
-The setup page is available whenever no user has the `super_admin` role. Keep a secured super administrator: removing the last one makes setup available again. The wizard redirects away once such a user exists.
+## Step 3: First-Run Setup Wizard
 
-Do not run `composer run setup` or the default seeder for this walkthrough. The seeder creates `admin@admin.com` and `user@user.com` with the known password `password`; rerunning it can assign roles to existing users with those email addresses. If it has been used, secure or remove those accounts while keeping a secured super administrator.
+Open your browser and navigate to:
 
-## 5. Create an organization and application
+```text
+http://localhost:8000/setup
+```
 
-1. From the administration panel, open **Register Organization**. If needed, visit `/admin/new`. Enter an organization name and unique slug; the custom domain is optional. The creator is attached to the organization as an owner.
-2. In that organization, open **Applications** and choose **New Application**. Enter a name, choose **Development**, select the target framework, and enter the exact callback URL your client will use. A suggested localhost callback is filled in for supported frameworks; replace it if your client uses a different URL.
-3. Save the application and review its details. The application page shows its client ID, environment values, and framework-specific example snippets. The top bar lets you switch organizations, applications, and the application environment.
+If no super administrator exists in the database, the interactive setup wizard will appear:
 
-Save the displayed client credentials immediately; confidential secrets are shown once. Enroll a test user in the organization and the selected application environment, then follow [the Laravel SDK guide](../guides/laravel-sdk.mdx) to configure and test a consuming app. The other environment begins without a callback URL. Read [tenancy and OAuth integration](../guides/core-concepts.mdx) for the checks and boundaries of this setup.
+1. **Portal Name**: Give your portal an identity (e.g. _Acme Identity_).
+2. **Super Administrator Account**:
+    - Full Name
+    - Email Address
+    - Password (minimum 8 characters, confirmed)
+3. Click **Initialize Portal & Launch**.
 
-## Next steps
+The setup wizard will:
 
-- Use [local development](local-development.mdx) for day-to-day commands and troubleshooting.
-- Review [configuration](configuration.mdx) to configure the database, mail, and optional social login.
-- Read [deployment and operations](../guides/ci-cd.mdx) before hosting a shared instance.
+- Create and verify the initial `super_admin` user.
+- Configure default application branding settings.
+- Automatically sign you into the **Filament Administration Panel** at `/admin`.
+- Lock the `/setup` route to prevent unauthorized re-initialization.
+
+---
+
+## Step 4: Register an Organization & Application
+
+Once logged into the Filament Admin Panel:
+
+### 1. Register Your First Organization (Tenant)
+
+1. Open the top-left tenant dropdown or navigate to `/admin/new`.
+2. Enter the **Organization Name** (e.g., _Engineering HQ_) and **Slug** (e.g., `engineering-hq`).
+3. Click **Create Organization**.
+
+### 2. Register an Application
+
+1. In the navigation sidebar under **Applications**, click **New Application**.
+2. Fill out the application details:
+    - **Name**: e.g., _Customer Portal_
+    - **Framework**: Select `Laravel`, `Node.js`, `Vue`, or `React`.
+    - **Environment**: Choose `Development` or `Production`.
+    - **Callback URLs**: Enter the exact redirect URI where authorization codes will be delivered (e.g. `http://localhost:8001/koamishin/callback`).
+3. Click **Create Application**.
+
+> 🔑 **Important**: The modal will display your **Client ID** and **Client Secret**. Copy and store the client secret immediately—it is hashed and cannot be shown again.
+
+---
+
+## Step 5: Verify Your Endpoints
+
+You can verify that your identity provider is healthy by querying its standard endpoints:
+
+```bash
+# 1. Healthcheck endpoint
+curl http://localhost:8000/up
+
+# 2. OIDC Discovery Metadata
+curl http://localhost:8000/.well-known/openid-configuration
+
+# 3. Public RS256 JWKS Keys
+curl http://localhost:8000/oauth/jwks
+```
+
+---
+
+## Next Steps
+
+- Follow the [Centralized Auth Walkthrough](centralized-auth.mdx) to connect two separate Laravel apps to this Portal.
+- Explore the [Laravel PHP SDK Guide](../guides/laravel-sdk.mdx).
+- Learn how to manage [Application User Metadata](../guides/user-metadata.mdx).
+- Review [Production Deployment & Operations](../guides/ci-cd.mdx) before hosting on public infrastructure.

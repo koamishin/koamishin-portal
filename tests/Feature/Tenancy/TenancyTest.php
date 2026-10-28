@@ -111,9 +111,9 @@ test('provisioning creates independent confidential clients for both environment
 
     expect($development->oauth_client_id)->not->toBe($production->oauth_client_id);
     expect($application->oauth_client_id)->toBe($production->oauth_client_id);
-    expect($development->oauthClient->grant_types)->toContain('authorization_code', 'refresh_token');
-    expect($production->oauthClient->redirect_uris)->toBe(['https://backend.example.test/auth/callback']);
-    expect(Hash::check($credentials['production']['secret'], $production->oauthClient->secret))->toBeTrue();
+    expect($development->oauthClient->getAttribute('grant_types'))->toContain('authorization_code', 'refresh_token');
+    expect($production->oauthClient->getAttribute('redirect_uris'))->toBe(['https://backend.example.test/auth/callback']);
+    expect(Hash::check($credentials['production']['secret'], $production->oauthClient->getAttribute('secret')))->toBeTrue();
     expect($credentials['production']['secret'])->not->toBe($credentials['development']['secret']);
 });
 
@@ -130,6 +130,26 @@ test('production provisioning refuses an insecure callback without creating a cl
     expect(Client::query()->count())->toBe($clientsBefore);
     expect($tenant->applications()->count())->toBe(0);
 });
+
+test('provisioning rejects malformed application input before creating clients', function (array $overrides): void {
+    $tenant = Tenant::query()->create(['name' => 'Invalid org', 'slug' => 'invalid-org']);
+    $clientsBefore = Client::query()->count();
+    $data = array_replace([
+        'name' => 'Backend',
+        'framework' => 'laravel',
+        'environment' => 'development',
+        'redirect_uris' => ['http://localhost:8000/callback'],
+    ], $overrides);
+
+    expect(fn () => app(ApplicationProvisioner::class)->create($tenant, $data))
+        ->toThrow(ValidationException::class);
+    expect(Client::query()->count())->toBe($clientsBefore);
+    expect($tenant->applications()->count())->toBe(0);
+})->with([
+    'non-string framework' => [['framework' => ['laravel']]],
+    'non-array redirect list' => [['redirect_uris' => 'http://localhost:8000/callback']],
+    'non-string redirect' => [['redirect_uris' => [123]]],
+]);
 
 test('legacy client migration binds only unambiguous active clients without replacing existing bindings', function (): void {
     $tenant = Tenant::query()->create(['name' => 'Legacy org', 'slug' => 'legacy-org']);

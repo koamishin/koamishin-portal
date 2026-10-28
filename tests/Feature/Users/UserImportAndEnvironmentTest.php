@@ -223,6 +223,6 @@ test('reimport without updating details preserves existing organization and appl
     );
 
     expect($user->fresh()->name)->toBe('Original name');
-    expect($tenant->users()->whereKey($user)->firstOrFail()->pivot->role)->toBe('owner');
-    expect($application->users('production')->whereKey($user)->firstOrFail()->pivot->role)->toBe('admin');
+    expect($tenant->users()->whereKey($user)->firstOrFail()->getRelationValue('pivot')->getAttribute('role'))->toBe('owner');
+    expect($application->users('production')->whereKey($user)->firstOrFail()->getRelationValue('pivot')->getAttribute('role'))->toBe('admin');
 });

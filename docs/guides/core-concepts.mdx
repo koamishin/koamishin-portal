@@ -23,14 +23,14 @@ For a Laravel consuming application, continue with [the PHP SDK guide](laravel-s
 
 A mapped OAuth client must identify exactly one active application environment. During authorization and userinfo requests, the Portal checks the organization membership and the application membership for that environment. Banned users and revoked clients are denied. Userinfo also checks current access, so removing a membership prevents subsequent userinfo requests.
 
-| User scope | Optional userinfo claims |
-| --- | --- |
-| `profile` | Name, username, picture, and update time |
-| `email` | Email and verification status |
-| `phone` | Phone number and verification status |
-| `wallet` | Wallet address |
-| `roles` | The user's application-environment membership role; the current permissions list is empty |
-| `metadata:public` | Public metadata for this application environment |
+| User scope        | Optional userinfo claims                                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------- |
+| `profile`         | Name, username, picture, and update time                                                  |
+| `email`           | Email and verification status                                                             |
+| `phone`           | Phone number and verification status                                                      |
+| `wallet`          | Wallet address                                                                            |
+| `roles`           | The user's application-environment membership role; the current permissions list is empty |
+| `metadata:public` | Public metadata for this application environment                                          |
 
 `sub`, organization ID, application ID, and environment identify the context. Private metadata and the older global `users.metadata` field are not returned. The Portal's userinfo endpoints are `GET /api/oauth/userinfo` and `GET /api/user`; both now return the scoped claims shape rather than a raw user model. See [application user metadata](user-metadata.mdx) for writing and reading custom values.
 

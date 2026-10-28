@@ -9,12 +9,12 @@ The Portal exposes OAuth authorization and userinfo for signed-in users, plus a 
 
 ## User authentication
 
-| Endpoint | Purpose |
-| --- | --- |
-| `GET /oauth/authorize` | Begin the authorization-code flow. |
-| `POST /oauth/token` | Exchange an authorization code, refresh token, or management client credentials. |
+| Endpoint                  | Purpose                                                                           |
+| ------------------------- | --------------------------------------------------------------------------------- |
+| `GET /oauth/authorize`    | Begin the authorization-code flow.                                                |
+| `POST /oauth/token`       | Exchange an authorization code, refresh token, or management client credentials.  |
 | `GET /api/oauth/userinfo` | Return scope-filtered claims for an enrolled user with a valid user bearer token. |
-| `GET /api/user` | Return the same scoped userinfo claims. |
+| `GET /api/user`           | Return the same scoped userinfo claims.                                           |
 
 Userinfo checks the active OAuth client's unique application-environment mapping and the user's organization and environment membership on each request. See [tenancy and OAuth](../guides/core-concepts.mdx) for claims and [the Laravel SDK](../guides/laravel-sdk.mdx) for a complete login example. The Portal does not issue OIDC ID tokens.
 
@@ -22,17 +22,17 @@ Userinfo checks the active OAuth client's unique application-environment mapping
 
 Create an application-environment-bound management client with the Portal's `koamishin:management-client` command. At `/oauth/token`, use `grant_type=client_credentials` with that client ID, secret, and the requested scope names. Send the resulting access token as `Authorization: Bearer <token>` to the routes below. The scope must be both granted to the client and requested for the token. Management credentials are separate from authorization-code credentials.
 
-| Method and route | Required scope | Behavior |
-| --- | --- | --- |
-| `GET /api/v1/organization` | `organization:read` | Read the credential's organization and application-environment context. |
-| `GET /api/v1/users` | `users:read` | List enrolled users; accepts `page` and `per_page` (1–100, default 15). |
-| `GET /api/v1/users/{userId}` | `users:read` | Retrieve an enrolled user. |
-| `GET /api/v1/users/{userId}/metadata` | `metadata:read` | Retrieve this environment's public and private metadata. |
-| `PATCH /api/v1/users/{userId}/metadata` | `metadata:read`, `metadata:write` | Replace the supplied metadata objects; omitted objects are retained. |
-| `GET /api/v1/users/{userId}/sessions` | `sessions:read` | List this environment's active OAuth grants with pagination. |
-| `DELETE /api/v1/users/{userId}/sessions/{sessionId}` | `sessions:revoke` | Revoke the selected access token and its refresh token; returns 204. |
-| `PUT /api/v1/users/{userId}/membership` | `memberships:write` | Enroll an existing organization member in this environment as `member`; idempotent, returns 204. |
-| `DELETE /api/v1/users/{userId}/membership` | `memberships:write` | Remove this environment membership and revoke its OAuth grants; returns 204. |
+| Method and route                                     | Required scope                    | Behavior                                                                                         |
+| ---------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `GET /api/v1/organization`                           | `organization:read`               | Read the credential's organization and application-environment context.                          |
+| `GET /api/v1/users`                                  | `users:read`                      | List enrolled users; accepts `page` and `per_page` (1–100, default 15).                          |
+| `GET /api/v1/users/{userId}`                         | `users:read`                      | Retrieve an enrolled user.                                                                       |
+| `GET /api/v1/users/{userId}/metadata`                | `metadata:read`                   | Retrieve this environment's public and private metadata.                                         |
+| `PATCH /api/v1/users/{userId}/metadata`              | `metadata:read`, `metadata:write` | Replace the supplied metadata objects; omitted objects are retained.                             |
+| `GET /api/v1/users/{userId}/sessions`                | `sessions:read`                   | List this environment's active OAuth grants with pagination.                                     |
+| `DELETE /api/v1/users/{userId}/sessions/{sessionId}` | `sessions:revoke`                 | Revoke the selected access token and its refresh token; returns 204.                             |
+| `PUT /api/v1/users/{userId}/membership`              | `memberships:write`               | Enroll an existing organization member in this environment as `member`; idempotent, returns 204. |
+| `DELETE /api/v1/users/{userId}/membership`           | `memberships:write`               | Remove this environment membership and revoke its OAuth grants; returns 204.                     |
 
 Management lists return `data`, `links`, and `meta`; list user IDs are strings. Metadata bodies must be JSON objects. A supplied `public` or `private` object replaces its entire bucket, and the request and combined stored objects are each limited to 16 KiB. See [metadata](../guides/user-metadata.mdx) for examples and privacy considerations.
 
