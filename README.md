@@ -22,7 +22,7 @@ A person can register from App A through the Portal and return authenticated to 
 
 The environment setting is `settings.allow_signups`; only the JSON boolean `true` enables self-service enrollment. A missing or false setting requires administrator enrollment. Direct registration on the generic Portal `/register` page creates a global account without choosing an application or returning to one.
 
-The [two-application walkthrough](docs/getting-started/centralized-auth.mdx) includes complete routes, configuration, signup policy, metadata, and expected redirects. The existing local test harness uses Portal port **8120**, App A **8121**, and App B **8122**, with an isolated test database.
+The [two-application walkthrough](docs/getting-started/centralized-auth.mdx) includes complete routes, configuration, signup policy, local Eloquent user projections, metadata, and expected redirects. The SDK guard returns the central identity; a local `users` row keyed by `koamishin_user_id` gives each app normal relationships to its own data. The existing local test harness uses Portal port **8120**, App A **8121**, and App B **8122**, with an isolated Portal test database.
 
 ## Features
 

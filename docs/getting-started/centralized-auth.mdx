@@ -115,8 +115,11 @@ In each app's `config/auth.php`, add this guard inside the existing `guards` arr
 Add these routes to each app's `routes/web.php`, avoiding duplicate route names if the app already has authentication routes:
 
 ```php
+use App\Exceptions\KoamishinIdentityConflict;
+use App\Services\KoamishinUserProjector;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use InvalidArgumentException;
 use Koamishin\Auth\Facades\Koamishin;
 
 Route::get('/register', function () {
@@ -127,7 +130,7 @@ Route::get('/login', function () {
     return redirect()->away(Koamishin::getLoginUrl('/dashboard'));
 })->name('login');
 
-Route::get('/koamishin/callback', function (Request $request) {
+Route::get('/koamishin/callback', function (Request $request, KoamishinUserProjector $projector) {
     if ($request->query('error')) {
         abort(403, 'Sign-in was not completed.');
     }
@@ -138,24 +141,40 @@ Route::get('/koamishin/callback', function (Request $request) {
     ]);
 
     try {
-        Koamishin::handleCallback($input['code'], $input['state']);
+        $identity = Koamishin::handleCallback($input['code'], $input['state']);
     } catch (InvalidArgumentException $exception) {
         abort(403, 'Invalid or expired sign-in request.');
+    }
+
+    try {
+        $projector->sync($identity);
+    } catch (InvalidArgumentException $exception) {
+        Koamishin::logout();
+
+        abort(403, 'The Portal identity does not match this application configuration.');
+    } catch (KoamishinIdentityConflict $exception) {
+        Koamishin::logout();
+
+        abort(409, $exception->getMessage());
     }
 
     return redirect()->to(Koamishin::consumeReturnTo('/dashboard'));
 });
 
 Route::get('/dashboard', function (Request $request) {
-    $user = $request->user();
+    $identity = $request->user('koamishin');
+    $localUser = App\Models\User::query()
+        ->where('koamishin_user_id', $identity->id)
+        ->firstOrFail();
 
     return response()->json([
-        'id' => $user->id,
-        'name' => $user->name,
-        'email' => $user->email,
-        'application_id' => $user->applicationId,
-        'environment' => $user->environment,
-        'public_metadata' => $user->publicMetadata,
+        'id' => $identity->id,
+        'local_user_id' => $localUser->id,
+        'name' => $localUser->name,
+        'email' => $localUser->email,
+        'application_id' => $identity->applicationId,
+        'environment' => $identity->environment,
+        'public_metadata' => $localUser->koamishin_public_metadata,
     ]);
 })->middleware('auth:koamishin');
 
@@ -168,7 +187,11 @@ Route::post('/logout', function () {
 
 `getRegistrationUrl()` creates the same session-backed OAuth state and PKCE verifier as login, then adds `screen_hint=signup`. The Portal can therefore display the named application's registration page and resume the original authorization request. A plain redirect to the Portal's generic `/register` page has no originating application context.
 
-The callback receives an authorization code, then the server exchanges it for tokens and fetches the permitted claims. User data and metadata are not placed in the callback URL. Submit logout through a CSRF-protected POST form; it clears the local app's SDK session without ending the Portal's browser session.
+The callback receives an authorization code, then the server exchanges it for tokens and fetches the permitted claims. User data and metadata are not placed in the callback URL. The route above projects the verified Portal subject before redirecting. Each app should have a unique `koamishin_user_id` column on its local `users` table. This sample expects the `email` scope and a non-empty email claim, and it mirrors central email verification to Laravel's `email_verified_at`. Store only the profile fields and public metadata that app needs; never store a Portal password or access token in that row. If a local account already has the same email, clear the SDK session and require an explicit trusted linking flow instead of matching by email. See the [SDK projection guide](../guides/laravel-sdk.mdx#maintain-a-local-eloquent-user-projection) for the migration and service.
+
+The SDK guard still returns the central `KoamishinUser`. Resolve the local model explicitly when the app needs its own Eloquent relationships. For example, an app's `User::posts()` relation reads from that app's database; it does not fetch or join data from the Portal. Use the Portal management API for centrally owned data.
+
+Submit logout through a CSRF-protected POST form; it clears the local app's SDK session without ending the Portal's browser session.
 
 ## 4. Try signup in App A and login in App B
 
@@ -193,9 +216,9 @@ In the test user's browser profile:
 
 1. Open App A's `/register`. The Portal should show App A's name and development environment on its registration page.
 2. Create a new account and complete the authorization request. With self-service signup enabled, the Portal enrolls the new account in App A's organization and environment and returns the browser to App A's callback and `/dashboard`.
-3. Confirm the user appears in the Portal's central directory and App A's user list. App A's dashboard should show the Portal subject and App A's application ID.
+3. Confirm the user appears in the Portal's central directory and App A's local `users` table with the same `koamishin_user_id`. App A's dashboard should show both the Portal subject and the app's local user ID.
 4. Open App B's `/login` in the same browser profile. The Portal can reuse its existing login session. If the user is not enrolled in App B, self-service signup must also be enabled there; approving App B's consent request adds that membership before returning to App B.
-5. Compare the dashboards: the user ID should match, while separate applications have different application IDs. Each has its own session and metadata.
+5. Compare the dashboards: the Portal user ID should match, while each app has its own local user row and application ID. Each app keeps its own session, app-owned Eloquent relationships, and metadata.
 
 An active Portal login can avoid another password prompt. Authorization consent and application access remain specific to the requesting app.
 
