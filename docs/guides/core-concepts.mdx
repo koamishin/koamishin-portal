@@ -27,6 +27,8 @@ Self-service enrollment requires the environment's `settings.allow_signups` to b
 
 Separate applications use separate clients and application IDs. They share the same Portal subject for the same person, while memberships and public/private metadata remain scoped to each application environment. Two consumers intentionally using one Portal application share that boundary. Follow the [two-application walkthrough](../getting-started/centralized-auth.mdx) for complete routes and configuration.
 
+The Portal requires authentication for each new application flow, without reusing a Portal or another application's login. Each consumer manages its own session. An external social provider may reuse its own browser session. When **Require Email Verification** is enabled in Application Features, users must verify their email before the Portal grants application access. With it disabled, application authorization can proceed with an unverified email.
+
 ## Authorization and claims
 
 A mapped OAuth client must identify exactly one active application environment. During authorization and userinfo requests, the Portal checks the organization membership and the application membership for that environment. Banned users and revoked clients are denied. Userinfo also checks current access, so removing a membership prevents subsequent userinfo requests.

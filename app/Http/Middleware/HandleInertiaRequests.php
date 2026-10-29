@@ -64,6 +64,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'authLayout' => app(ApplicationFeaturesSettings::class)->auth_layout,
+            'notificationsEnabled' => app(ApplicationFeaturesSettings::class)->notifications_enabled,
             'settingsFeatures' => $settingsFeatures,
             'socialProviders' => $socialProviders,
         ];

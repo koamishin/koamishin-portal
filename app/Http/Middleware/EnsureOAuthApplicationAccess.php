@@ -8,6 +8,7 @@ use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAccess;
 use App\Services\OAuth\ApplicationAuthentication;
+use App\Settings\ApplicationFeaturesSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -15,6 +16,7 @@ use Inertia\Inertia;
 use Laravel\Passport\Bridge\Client;
 use Laravel\Passport\Bridge\Scope;
 use Laravel\Passport\Bridge\User as PassportUser;
+use Laravel\Passport\Exceptions\OAuthServerException as PassportOAuthServerException;
 use League\OAuth2\Server\AuthorizationServer;
 use League\OAuth2\Server\Exception\OAuthServerException;
 use League\OAuth2\Server\RequestTypes\AuthorizationRequest;
@@ -33,10 +35,45 @@ class EnsureOAuthApplicationAccess
     /** @param Closure(Request): Response $next */
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->is('login', 'register')) {
-            $this->authentication->resolve($request);
+        if ($request->is('login', 'register', 'two-factor-challenge', 'passkeys/login', 'passkeys/login/options', 'auth/*/redirect', 'email/verify', 'email/verify/*', 'email/verification-notification')) {
+            $flow = $request->input('flow');
+            $expiredVerificationLink = $request->is('email/verify/*') && is_string($flow) && ! $this->authentication->hasFlow($request, $flow);
+            if (! $expiredVerificationLink) {
+                $this->authentication->resolve($request);
+            }
 
-            return $next($request);
+            return $this->authentication->withinFlow($request, function () use ($request, $next): Response {
+                if ($request->is('email/verify') && $this->authentication->flowId($request) !== null
+                    && $request->user() instanceof User
+                    && (! app(ApplicationFeaturesSettings::class)->email_verification_required || $request->user()->hasVerifiedEmail())) {
+                    return $this->authentication->resume($request);
+                }
+                $response = $next($request);
+                $flow = $this->authentication->flowId($request);
+                if ($flow !== null && $request->is('login') && $request->isMethod('POST')
+                    && $request->session()->has('login.id') && $response->isRedirection()) {
+                    $response->headers->set('Location', route('two-factor.login', ['flow' => $flow]));
+                }
+                if ($flow !== null && $request->is('auth/*/redirect') && is_string($state = $request->session()->get('state'))) {
+                    $request->session()->put('koamishin.social_flows.'.$state, [
+                        'flow' => $flow,
+                        'provider' => $request->route('provider'),
+                    ]);
+                }
+
+                return $response;
+            });
+        }
+
+        if ($request->is('auth/*/callback')) {
+            $state = $request->query('state');
+            $socialFlow = is_string($state) ? $request->session()->pull('koamishin.social_flows.'.$state) : null;
+            if (is_array($socialFlow)) {
+                abort_unless(($socialFlow['provider'] ?? null) === $request->route('provider') && is_string($socialFlow['flow'] ?? null), 419);
+                $this->authentication->resolve($request, $socialFlow['flow']);
+            }
+
+            return $this->authentication->withinFlow($request, fn (): Response => $next($request));
         }
 
         if (! $request->is('oauth/authorize') || ! in_array($request->method(), ['GET', 'POST', 'DELETE'], true)) {
@@ -70,38 +107,71 @@ class EnsureOAuthApplicationAccess
         abort_unless($environment instanceof TenantApplicationEnvironment, 403);
         $request->attributes->set('koamishin.application_environment', $environment);
 
-        if ($request->query('flow') !== null) {
-            $this->authentication->begin($request, $clientId);
-        }
-
-        $user = $request->user();
-        if (! $user instanceof User) {
+        if ($request->query('flow') === null) {
             if (in_array('none', explode(' ', (string) $request->query('prompt', '')), true)) {
-                return $next($request);
+                throw PassportOAuthServerException::loginRequired($authorization);
             }
-
             $flow = $this->authentication->begin($request, $clientId);
             $signup = $request->query('screen_hint') === 'signup';
+            abort_if($signup && ! app(ApplicationFeaturesSettings::class)->registration_enabled, 403, 'Registration is disabled.');
             abort_if($signup && ! $this->authentication->allowsSignups($environment), 403, 'Registration is closed for this application.');
 
             return redirect()->route($signup ? 'register' : 'login', ['flow' => $flow['id']]);
         }
 
-        abort_if($user->isBanned(), 403);
-        if (! $this->access->allows($environment, $user)) {
-            abort_unless($this->authentication->allowsSignups($environment), 403, 'You do not have access to this application.');
-            abort_if(in_array('none', explode(' ', (string) $request->query('prompt', '')), true), 403);
-            $prompts = array_filter(explode(' ', (string) $request->query('prompt', '')));
-            $prompts[] = 'consent';
-            $request->query->set('prompt', implode(' ', array_unique($prompts)));
-            $request->attributes->set('koamishin.joining_application', true);
-        }
+        $this->authentication->begin($request, $clientId);
 
-        return $next($request);
+        return $this->authentication->withinFlow($request, function () use ($request, $next, $environment): Response {
+            $user = $request->user();
+            if (! $user instanceof User) {
+                return redirect()->route('login', ['flow' => $this->authentication->flowId($request)]);
+            }
+
+            abort_if($user->isBanned(), 403);
+            if (app(ApplicationFeaturesSettings::class)->email_verification_required && ! $user->hasVerifiedEmail()) {
+                $flow = $this->authentication->flowId($request);
+                if (! $request->session()->get('koamishin.verification_sent.'.$flow)) {
+                    $user->sendEmailVerificationNotification();
+                }
+
+                return redirect()->route('verification.notice', ['flow' => $flow]);
+            }
+            $prompts = array_filter(explode(' ', (string) $request->query('prompt', '')));
+            $prompts = array_diff($prompts, ['login']);
+            if (! $this->access->allows($environment, $user)) {
+                abort_unless($this->authentication->allowsSignups($environment), 403, 'You do not have access to this application.');
+                $prompts[] = 'consent';
+                $request->attributes->set('koamishin.joining_application', true);
+            }
+            $request->query->set('prompt', implode(' ', array_unique($prompts)));
+
+            $response = $next($request);
+            if ($response->isRedirection()) {
+                $this->authentication->finish($request);
+            }
+
+            return $response;
+        });
     }
 
     /** @param Closure(Request): Response $next */
     private function complete(Request $request, Closure $next): Response
+    {
+        abort_unless(is_string($request->input('flow')), 400);
+        $this->authentication->resolve($request);
+
+        return $this->authentication->withinFlow($request, function () use ($request, $next): Response {
+            $response = $this->completeAuthorization($request, $next);
+            if ($response->isRedirection()) {
+                $this->authentication->finish($request);
+            }
+
+            return $response;
+        });
+    }
+
+    /** @param Closure(Request): Response $next */
+    private function completeAuthorization(Request $request, Closure $next): Response
     {
         $authorization = $this->authorizationFromSession($request);
         abort_unless($authorization instanceof AuthorizationRequestInterface, 400);
@@ -118,6 +188,8 @@ class EnsureOAuthApplicationAccess
         if ($request->isMethod('DELETE')) {
             return $next($request);
         }
+
+        abort_if(app(ApplicationFeaturesSettings::class)->email_verification_required && ! $user->hasVerifiedEmail(), 403, 'Verify your email address before authorizing this application.');
 
         if ($this->access->allows($environment, $user)) {
             return $next($request);

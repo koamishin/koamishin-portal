@@ -9,6 +9,7 @@ import { send } from '@/routes/verification';
 
 defineProps<{
     status?: string;
+    flow?: string | null;
 }>();
 </script>
 
@@ -32,12 +33,14 @@ defineProps<{
             class="space-y-6 text-center"
             v-slot="{ processing }"
         >
+            <input v-if="flow" type="hidden" name="flow" :value="flow" />
             <Button :disabled="processing" variant="secondary">
                 <Spinner v-if="processing" />
                 Resend verification email
             </Button>
 
             <TextLink
+                v-if="!flow"
                 :href="logout()"
                 as="button"
                 class="mx-auto block text-sm"

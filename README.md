@@ -12,12 +12,12 @@
 
 A person can register from App A through the Portal and return authenticated to App A, then sign in to App B with the same Portal identity. Access to each application follows that environment's signup policy or an administrator's enrollment decision.
 
-## How signup and shared login work
+## How application signup and login work
 
 1. Create an organization and register each application with its own callback URL and client credentials.
 2. App A's Register link calls `Koamishin::getRegistrationUrl('/dashboard')`. The SDK stores OAuth state and a PKCE verifier and sends `screen_hint=signup` to the Portal.
 3. The Portal validates the client and exact registered callback, then shows App A's name and environment on its registration page. With **Allow self-service signup** enabled, the new account can join App A's organization and environment and complete authorization back to App A.
-4. App B's Login link calls `getLoginUrl('/dashboard')`. The Portal can reuse its browser login session. An existing user who is not yet enrolled can join App B after approving consent only when App B's environment also allows self-service signup.
+4. App B's Login link calls `getLoginUrl('/dashboard')`. The Portal shows App B's login form and requires a fresh sign-in, even when the person has a Portal or App A session. An existing user who is not yet enrolled can join App B after approving consent only when App B's environment also allows self-service signup.
 5. Both apps receive the same Portal user ID. Separate application IDs, memberships, sessions, and metadata keep their contexts distinct.
 
 The environment setting is `settings.allow_signups`; only the JSON boolean `true` enables self-service enrollment. A missing or false setting requires administrator enrollment. Direct registration on the generic Portal `/register` page creates a global account without choosing an application or returning to one.

@@ -4,14 +4,23 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Controllers\Auth\ApplicationPasskeyLoginController;
 use App\Http\Responses\ApplicationLoginResponse;
+use App\Http\Responses\ApplicationPasskeyLoginResponse;
 use App\Http\Responses\ApplicationRegisterResponse;
+use App\Http\Responses\ApplicationTwoFactorLoginResponse;
+use App\Http\Responses\ApplicationVerifyEmailResponse;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAuthentication;
+use App\Settings\ApplicationFeaturesSettings;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
@@ -19,8 +28,13 @@ use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Laravel\Fortify\Contracts\LoginResponse;
 use Laravel\Fortify\Contracts\RegisterResponse;
+use Laravel\Fortify\Contracts\TwoFactorLoginResponse;
+use Laravel\Fortify\Contracts\VerifyEmailResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
+use Laravel\Passkeys\Contracts\PasskeyLoginResponse;
+use Laravel\Passkeys\Http\Controllers\PasskeyLoginController;
+use Laravel\Passport\Http\Controllers\AuthorizationController;
 
 class FortifyServiceProvider extends ServiceProvider
 {
@@ -32,6 +46,15 @@ class FortifyServiceProvider extends ServiceProvider
     {
         $this->app->bind(LoginResponse::class, ApplicationLoginResponse::class);
         $this->app->bind(RegisterResponse::class, ApplicationRegisterResponse::class);
+        $this->app->bind(TwoFactorLoginResponse::class, ApplicationTwoFactorLoginResponse::class);
+        $this->app->bind(VerifyEmailResponse::class, ApplicationVerifyEmailResponse::class);
+        $this->app->bind(PasskeyLoginResponse::class, ApplicationPasskeyLoginResponse::class);
+        $this->app->bind(PasskeyLoginController::class, ApplicationPasskeyLoginController::class);
+        $this->app->bind(StatefulGuard::class, fn () => request()->attributes->get('koamishin.application_guard')
+            ?? Auth::guard(config('fortify.guard')));
+        $this->app->when(AuthorizationController::class)->needs(StatefulGuard::class)->give(
+            fn () => request()->attributes->get('koamishin.application_guard') ?? Auth::guard(config('passport.guard')),
+        );
     }
 
     /**
@@ -43,6 +66,15 @@ class FortifyServiceProvider extends ServiceProvider
         $this->configureViews();
         $this->configureRateLimiting();
         $this->configureAuthentication();
+        VerifyEmail::createUrlUsing(function (User $user): string {
+            $flow = app(ApplicationAuthentication::class)->flowId(request());
+
+            return URL::temporarySignedRoute('verification.verify', now()->addMinutes(config('auth.verification.expire', 60)), array_filter([
+                'id' => $user->getKey(),
+                'hash' => sha1($user->getEmailForVerification()),
+                'flow' => $flow,
+            ], fn ($value): bool => $value !== null));
+        });
     }
 
     /**
@@ -84,8 +116,8 @@ class FortifyServiceProvider extends ServiceProvider
     private function configureViews(): void
     {
         Fortify::loginView(fn (Request $request) => Inertia::render('auth/Login', [
-            'canResetPassword' => Features::enabled(Features::resetPasswords()),
-            'canRegister' => Features::enabled(Features::registration()),
+            'canResetPassword' => Features::enabled(Features::resetPasswords()) && app(ApplicationFeaturesSettings::class)->password_reset_enabled,
+            'canRegister' => Features::enabled(Features::registration()) && app(ApplicationFeaturesSettings::class)->registration_enabled,
             'status' => $request->session()->get('status'),
             'application' => app(ApplicationAuthentication::class)->pageContext($request),
             'flow' => app(ApplicationAuthentication::class)->flowId($request),
@@ -103,6 +135,7 @@ class FortifyServiceProvider extends ServiceProvider
 
         Fortify::verifyEmailView(fn (Request $request) => Inertia::render('auth/VerifyEmail', [
             'status' => $request->session()->get('status'),
+            'flow' => app(ApplicationAuthentication::class)->flowId($request),
         ]));
 
         Fortify::registerView(fn (Request $request) => Inertia::render('auth/Register', [
@@ -111,7 +144,9 @@ class FortifyServiceProvider extends ServiceProvider
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ]));
 
-        Fortify::twoFactorChallengeView(fn () => Inertia::render('auth/TwoFactorChallenge'));
+        Fortify::twoFactorChallengeView(fn (Request $request) => Inertia::render('auth/TwoFactorChallenge', [
+            'flow' => app(ApplicationAuthentication::class)->flowId($request),
+        ]));
 
         Fortify::confirmPasswordView(fn () => Inertia::render('auth/ConfirmPassword'));
     }

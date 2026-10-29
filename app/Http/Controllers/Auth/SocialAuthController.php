@@ -8,9 +8,12 @@ use App\Enums\RoleEnums;
 use App\Enums\SocialLoginProvider;
 use App\Http\Controllers\Controller;
 use App\Models\SocialAccount;
+use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
+use App\Services\OAuth\ApplicationAuthentication;
 use App\Settings\ApplicationFeaturesSettings;
 use App\Settings\SocialLoginSettings;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -39,14 +42,14 @@ class SocialAuthController extends Controller
 
         if (! $this->socialLoginSettings->isProviderEnabled($providerEnum)) {
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not enabled.']);
         }
 
         $credentials = $this->socialLoginSettings->resolveCredentials($providerEnum);
         if ($credentials === null) {
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not configured.']);
         }
 
@@ -61,7 +64,7 @@ class SocialAuthController extends Controller
         return $driver->redirect();
     }
 
-    public function callback(Request $request, string $provider): RedirectResponse
+    public function callback(Request $request, string $provider): RedirectResponse|Response
     {
         $providerEnum = SocialLoginProvider::tryFromSlug($provider);
 
@@ -71,14 +74,14 @@ class SocialAuthController extends Controller
 
         if (! $this->socialLoginSettings->isProviderEnabled($providerEnum)) {
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not enabled.']);
         }
 
         $credentials = $this->socialLoginSettings->resolveCredentials($providerEnum);
         if ($credentials === null) {
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not configured.']);
         }
 
@@ -97,7 +100,7 @@ class SocialAuthController extends Controller
             ]);
 
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'Unable to authenticate with '.($providerEnum->label()).'. Please try again.']);
         }
 
@@ -117,6 +120,11 @@ class SocialAuthController extends Controller
                         abort(409, 'A user with that email exists but is not yet verified. Please verify your email first.');
                     }
                 } else {
+                    abort_unless($this->applicationFeaturesSettings->registration_enabled, 403, 'Registration is disabled.');
+                    $environment = request()->attributes->get('koamishin.application_environment');
+                    if ($environment instanceof TenantApplicationEnvironment) {
+                        abort_unless(app(ApplicationAuthentication::class)->allowsSignups($environment), 403, 'Registration is closed for this application.');
+                    }
                     $user = $this->createUserFromSocial($socialUser);
                 }
             }
@@ -134,12 +142,20 @@ class SocialAuthController extends Controller
 
         if ($user->isBanned()) {
             return redirect()
-                ->route('login')
+                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors([
                     'social' => $user->ban_reason
                         ? 'Your account has been suspended: '.$user->ban_reason
                         : 'Your account has been suspended. Please contact support.',
                 ]);
+        }
+
+        $guard = $request->attributes->get('koamishin.application_guard');
+        if ($guard instanceof StatefulGuard) {
+            $guard->login($user);
+            $request->session()->regenerate();
+
+            return app(ApplicationAuthentication::class)->resume($request);
         }
 
         Auth::login($user, true);

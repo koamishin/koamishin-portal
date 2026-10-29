@@ -15,6 +15,10 @@ The default seeder creates known-password accounts, including a super administra
 
 Protect `.env`, database credentials, OAuth client secrets, `APP_KEY`, and `storage/oauth-private.key`. Use HTTPS and appropriate proxy, cookie and session settings. Set a correct `APP_URL` for passkeys. Configure mail delivery and review registration and account recovery policies for your deployment. The application logs user activity; review log access and retention to avoid exposing sensitive information.
 
+Application sign-in flows use the Portal's browser session to store short-lived transaction state. When simultaneous requests can write the same session, configure a shared, lock-capable cache and set `block` to `true` in `config/session.php` to enable Laravel's session blocking; otherwise concurrent browser requests can overwrite session data. A flow expires after ten minutes, so start again from the application if authentication or recovery takes longer.
+
+The Portal's Application Features settings control registration, password reset, and whether email verification is required before application authorization. Disabling two-factor setup prevents new enrollments but continues to challenge users who already enrolled. Verification links opened after the application flow expires can still verify the account after a normal Portal sign-in; the user must then start a new application flow.
+
 ## Understand integration boundaries
 
 OAuth userinfo, the management API, and user webhooks check application-environment boundaries and expose only their documented fields. These checks do not automatically scope every Portal feature or create separate databases. The `super_admin` role has global administrative access. Protect management and webhook secrets, and review all other endpoints before hosting mutually untrusted organizations. See [tenancy and OAuth](core-concepts.mdx) and [user metadata](user-metadata.mdx). User impersonation is sensitive: inspect the current model and policy checks before granting roles or relying on impersonation controls.

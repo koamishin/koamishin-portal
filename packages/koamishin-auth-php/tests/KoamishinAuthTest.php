@@ -93,6 +93,26 @@ class KoamishinAuthTest extends TestCase
         $this->assertSame('/welcome', Session::get('koamishin_oauth_transactions')[$signup['state']]['return_to']);
     }
 
+    public function test_logout_only_clears_the_local_koamishin_session(): void
+    {
+        Http::fake(['https://portal.test/*' => Http::response()]);
+        Session::put('koamishin_user_id', 'user-1');
+        Session::put('koamishin_access_token', Crypt::encryptString('access-token'));
+        Session::put('koamishin_refresh_token', Crypt::encryptString('refresh-token'));
+        Session::put('koamishin_token_expires_at', time() + 60);
+        Session::put('unrelated_application_data', 'preserved');
+        $sessionId = Session::getId();
+
+        app(KoamishinAuth::class)->logout();
+
+        $this->assertFalse(Session::has('koamishin_access_token'));
+        $this->assertFalse(Session::has('koamishin_refresh_token'));
+        $this->assertFalse(Session::has('koamishin_user_id'));
+        $this->assertSame('preserved', Session::get('unrelated_application_data'));
+        $this->assertNotSame($sessionId, Session::getId());
+        Http::assertNothingSent();
+    }
+
     public function test_callback_rejects_invalid_state_before_requesting_tokens(): void
     {
         Http::fake(['https://portal.test/oauth/token' => Http::response()]);

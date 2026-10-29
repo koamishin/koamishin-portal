@@ -5,6 +5,9 @@ import { Fingerprint } from '@lucide/vue';
 import { onMounted, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
+import { loginOptions, login } from '@/routes/passkey';
+
+const props = defineProps<{ flow?: string | null }>();
 
 const supported = ref(true);
 const loading = ref(false);
@@ -23,7 +26,18 @@ const signIn = async () => {
     error.value = null;
 
     try {
-        const result = await Passkeys.verify();
+        const result = await Passkeys.verify(
+            props.flow
+                ? {
+                      routes: {
+                          options: loginOptions.url({
+                              query: { flow: props.flow },
+                          }),
+                          submit: login.url({ query: { flow: props.flow } }),
+                      },
+                  }
+                : {},
+        );
         const redirect = (result as { redirect?: string } | null)?.redirect;
 
         if (redirect) {

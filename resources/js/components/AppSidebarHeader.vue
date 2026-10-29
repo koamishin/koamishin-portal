@@ -13,6 +13,8 @@ import {
 } from '@/routes/notifications';
 import type { BreadcrumbItem } from '@/types';
 import { ref, onMounted } from 'vue';
+import { usePage } from '@inertiajs/vue3';
+import type { AppPageProps } from '@/types';
 
 withDefaults(
     defineProps<{
@@ -34,6 +36,7 @@ interface Notification {
 const notifications = ref<Notification[]>([]);
 const unreadCount = ref(0);
 const isOpen = ref(false);
+const page = usePage<AppPageProps<{ notificationsEnabled: boolean }>>();
 
 const fetchNotifications = async () => {
     try {
@@ -130,7 +133,9 @@ const getNotificationDescription = (notification: Notification) => {
 };
 
 onMounted(() => {
-    fetchNotifications();
+    if (page.props.notificationsEnabled) {
+        fetchNotifications();
+    }
 });
 </script>
 
@@ -145,7 +150,7 @@ onMounted(() => {
             </template>
         </div>
 
-        <Popover v-model:open="isOpen">
+        <Popover v-if="page.props.notificationsEnabled" v-model:open="isOpen">
             <PopoverTrigger as-child>
                 <button
                     class="relative flex h-9 w-9 items-center justify-center rounded-md text-sidebar-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"

@@ -139,6 +139,6 @@ const props = defineProps<{
             </div>
         </Form>
 
-        <SocialLoginButtons />
+        <SocialLoginButtons :flow="flow" />
     </AuthBase>
 </template>

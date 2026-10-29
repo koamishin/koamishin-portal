@@ -65,9 +65,11 @@ class ApplicationFeaturesSettingsPage extends Page
                                 ->default(true),
                             Toggle::make('email_verification_required')
                                 ->label('Require Email Verification')
+                                ->helperText('Require verification before users can access Portal applications.')
                                 ->default(true),
                             Toggle::make('two_factor_authentication_enabled')
-                                ->label('Enable Two-Factor Authentication')
+                                ->label('Allow Two-Factor Setup')
+                                ->helperText('Existing two-factor methods remain required when setup is disabled.')
                                 ->default(true),
                             Toggle::make('password_reset_enabled')
                                 ->label('Enable Password Reset')
@@ -106,7 +108,8 @@ class ApplicationFeaturesSettingsPage extends Page
                                 ->label('Enable Activity Logging')
                                 ->default(true),
                             Toggle::make('notifications_enabled')
-                                ->label('Enable Notifications')
+                                ->label('Enable Notification Center')
+                                ->helperText('Security and account emails are still sent when required.')
                                 ->default(true),
                         ])
                         ->columns(2),

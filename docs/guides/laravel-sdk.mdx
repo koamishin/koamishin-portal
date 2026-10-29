@@ -110,6 +110,8 @@ Route::post('/logout', function () {
 
 `getRegistrationUrl()` creates a session-backed OAuth transaction with PKCE and `screen_hint=signup`, so the Portal can show the requesting application's signup page and return to that app. The Portal validates the client and exact callback before presenting this context. Use this method for an application's Register link rather than redirecting to the generic Portal `/register` page.
 
+Each application login requires a new Portal authentication, including when the browser already has a Portal session or is signed into another application. Applications maintain their own sessions. Social providers may reuse their own separate sessions.
+
 The environment must explicitly allow self-service signup (`settings.allow_signups === true`). New accounts can then be enrolled during contextual signup; existing Portal users can join another open application after approving its authorization request. Missing or false policies require administrator enrollment. Direct generic Portal registration remains a global account-creation flow without application context. See the [two-app walkthrough](../getting-started/centralized-auth.mdx).
 
 Submit logout using a POST form with `@csrf`. The SDK validates the OAuth state, exchanges the authorization code, rotates the local session ID, and revalidates the user's access token with the Portal for authenticated requests. It can refresh expired access tokens. If the Portal is unavailable, authentication can fail; plan for this dependency. Local logout clears the consuming application's Koamishin session; it does not revoke the Portal token or end the Portal's own browser session.

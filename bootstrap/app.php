@@ -1,9 +1,14 @@
 <?php
 
+use App\Http\Middleware\AuthenticateApplicationFlow;
+use App\Http\Middleware\EnsureAuthenticationFeatures;
+use App\Http\Middleware\EnsureEmailVerificationEnabled;
 use App\Http\Middleware\EnsureOAuthApplicationAccess;
 use App\Http\Middleware\EnsureSetupIsComplete;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
+use App\Http\Middleware\RedirectIfApplicationFlowAuthenticated;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +22,19 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->alias([
+            'auth' => AuthenticateApplicationFlow::class,
+            'guest' => RedirectIfApplicationFlowAuthenticated::class,
+            'verified' => EnsureEmailVerificationEnabled::class,
+        ]);
+        $middleware->prependToPriorityList(
+            AuthenticatesRequests::class,
+            EnsureOAuthApplicationAccess::class,
+        );
+        $middleware->prependToPriorityList(
+            EnsureOAuthApplicationAccess::class,
+            EnsureSetupIsComplete::class,
+        );
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
         $middleware->web(append: [
@@ -24,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
             EnsureSetupIsComplete::class,
+            EnsureAuthenticationFeatures::class,
             EnsureOAuthApplicationAccess::class,
         ]);
     })

@@ -7,7 +7,10 @@ namespace App\Services\OAuth;
 use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
 use App\Services\Webhooks\WebhookDispatcher;
+use Closure;
+use Illuminate\Auth\SessionGuard;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -26,6 +29,7 @@ class ApplicationAuthentication
     {
         $flows = $this->flows($request);
         $id = $request->query('flow');
+        abort_if($id !== null && (! is_string($id) || $id === ''), 419, 'This application sign-in has expired. Start again from the application.');
 
         if (is_string($id) && $id !== '') {
             $flow = $flows[$id] ?? null;
@@ -39,22 +43,23 @@ class ApplicationAuthentication
                 'authorize_url' => $this->authorizationUrl($request, $id),
                 'created_at' => now()->timestamp,
             ];
-            $flows = array_slice($flows, -9, null, true);
+            $retained = array_slice($flows, -9, null, true);
+            foreach (array_diff_key($flows, $retained) as $expiredId => $_flow) {
+                $this->forgetFlowState($request, $expiredId);
+            }
+            $flows = $retained;
             $flows[$id] = $flow;
             $request->session()->put(self::SESSION_KEY, $flows);
         }
 
-        $request->attributes->set('koamishin.application_flow', $flow);
-        if (! $request->user()) {
-            $request->session()->put('url.intended', $flow['authorize_url']);
-        }
+        $this->activate($request, $flow);
 
         return $flow;
     }
 
-    public function resolve(Request $request): void
+    public function resolve(Request $request, ?string $flowId = null): void
     {
-        $id = $request->input('flow');
+        $id = $flowId ?? $request->input('flow');
         if ($id === null) {
             return;
         }
@@ -69,11 +74,88 @@ class ApplicationAuthentication
             abort_unless($this->allowsSignups($environment), 403, 'Registration is closed for this application.');
         }
 
-        $request->attributes->set('koamishin.application_flow', $flow);
-        if (! $request->user()) {
-            $request->session()->put('url.intended', $flow['authorize_url']);
-        }
+        $this->activate($request, $flow);
         $request->attributes->set('koamishin.application_environment', $environment);
+    }
+
+    /** @param array{id: string, client_id: string, authorize_url: string, created_at: int} $flow */
+    private function activate(Request $request, array $flow): void
+    {
+        $guard = new SessionGuard(
+            'application_'.$flow['id'],
+            Auth::createUserProvider(config('auth.guards.'.config('fortify.guard', 'web').'.provider')),
+            $request->session(),
+        );
+        $guard->setCookieJar(app('cookie'));
+        $guard->setDispatcher(app('events'));
+        $guard->setRequest($request);
+
+        $request->attributes->set('koamishin.application_flow', $flow);
+        $request->attributes->set('koamishin.application_guard', $guard);
+        $request->setUserResolver(fn (?string $name = null) => $name === null ? $guard->user() : Auth::guard($name)->user());
+        $request->merge(['remember' => false]);
+        $request->route()->flushController();
+    }
+
+    /** @param Closure(): Response $next */
+    public function withinFlow(Request $request, Closure $next): Response
+    {
+        $id = $this->flowId($request);
+        if ($id === null) {
+            return $next();
+        }
+
+        $session = $request->session();
+        $keys = ['login.id', 'login.remember', 'passkey.verification_options', 'authToken', 'authRequest', 'state', 'code_verifier'];
+        $original = [];
+        $state = $session->get('koamishin.application_state.'.$id, []);
+        $state = is_array($state) ? $state : [];
+
+        foreach ($keys as $key) {
+            if ($session->has($key)) {
+                $original[$key] = $session->get($key);
+            }
+            $session->forget($key);
+            if (array_key_exists($key, $state)) {
+                $session->put($key, $state[$key]);
+            }
+        }
+
+        try {
+            return $next();
+        } finally {
+            $state = [];
+            foreach ($keys as $key) {
+                if ($session->has($key)) {
+                    $state[$key] = $session->get($key);
+                }
+                $session->forget($key);
+                if (array_key_exists($key, $original)) {
+                    $session->put($key, $original[$key]);
+                }
+            }
+
+            if (! $request->attributes->get('koamishin.application_finished', false)) {
+                $session->put('koamishin.application_state.'.$id, $state);
+            }
+        }
+    }
+
+    public function finish(Request $request): void
+    {
+        $id = $this->flowId($request);
+        $guard = $request->attributes->get('koamishin.application_guard');
+        if ($id === null || ! $guard instanceof SessionGuard) {
+            return;
+        }
+
+        $flows = $request->session()->get(self::SESSION_KEY, []);
+        if (is_array($flows)) {
+            unset($flows[$id]);
+            $request->session()->put(self::SESSION_KEY, $flows);
+        }
+        $this->forgetFlowState($request, $id);
+        $request->attributes->set('koamishin.application_finished', true);
     }
 
     /** @return array{id: string, name: string, organization: string, environment: string, allowSignups: bool}|null */
@@ -98,14 +180,17 @@ class ApplicationAuthentication
         return $request->attributes->get('koamishin.application_flow')['id'] ?? null;
     }
 
+    public function hasFlow(Request $request, string $id): bool
+    {
+        return isset($this->flows($request)[$id]);
+    }
+
     public function resume(Request $request): ?Response
     {
         $flow = $request->attributes->get('koamishin.application_flow');
         if (! is_array($flow)) {
             return null;
         }
-
-        $request->session()->forget('url.intended');
 
         return $request->header('X-Inertia')
             ? Inertia::location($flow['authorize_url'])
@@ -170,6 +255,10 @@ class ApplicationAuthentication
                 || ! is_string($flow['authorize_url'] ?? null)
                 || ! is_int($flow['created_at'] ?? null)
                 || $flow['created_at'] < now()->timestamp - self::MAX_AGE) {
+                if (is_string($id)) {
+                    $this->forgetFlowState($request, $id);
+                }
+
                 continue;
             }
 
@@ -182,6 +271,24 @@ class ApplicationAuthentication
         }
 
         return $valid;
+    }
+
+    private function forgetFlowState(Request $request, string $id): void
+    {
+        $request->session()->forget([
+            'login_application_'.$id.'_'.sha1(SessionGuard::class),
+            'password_hash_application_'.$id,
+            'koamishin.application_state.'.$id,
+            'koamishin.verification_sent.'.$id,
+        ]);
+
+        $socialFlows = $request->session()->get('koamishin.social_flows', []);
+        if (is_array($socialFlows)) {
+            $request->session()->put('koamishin.social_flows', array_filter(
+                $socialFlows,
+                fn ($socialFlow): bool => is_array($socialFlow) && ($socialFlow['flow'] ?? null) !== $id,
+            ));
+        }
     }
 
     private function authorizationUrl(Request $request, string $flow): string

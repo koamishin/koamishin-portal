@@ -20,6 +20,7 @@ use Laravel\Passport\Token;
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\artisan;
 use function Pest\Laravel\assertDatabaseHas;
+use function Pest\Laravel\get;
 use function Pest\Laravel\getJson;
 use function Pest\Laravel\post;
 use function Pest\Laravel\postJson;
@@ -373,7 +374,7 @@ test('revoking an OAuth grant rejects its real refresh token', function (): void
     $environment->update(['oauth_client_id' => $client->getKey()]);
     $verifier = str_repeat('a', 64);
     $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
-    $authorization = actingAs($user)->get('/oauth/authorize?'.http_build_query([
+    $start = actingAs($user)->get('/oauth/authorize?'.http_build_query([
         'client_id' => $client->getKey(),
         'redirect_uri' => 'https://app.example/callback',
         'response_type' => 'code',
@@ -381,8 +382,13 @@ test('revoking an OAuth grant rejects its real refresh token', function (): void
         'state' => 'testing',
         'code_challenge' => $challenge,
         'code_challenge_method' => 'S256',
-    ]))->assertOk();
+    ]))->assertRedirect();
+    parse_str((string) parse_url((string) $start->headers->get('Location'), PHP_URL_QUERY), $loginQuery);
+    $flow = $loginQuery['flow'];
+    $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
+    $authorization = get((string) $login->headers->get('Location'))->assertOk();
     $approval = post('/oauth/authorize', [
+        'flow' => $flow,
         'state' => 'testing', 'client_id' => $client->getKey(),
         'auth_token' => $authorization->original->getData()['page']['props']['authToken'],
     ])->assertRedirect();

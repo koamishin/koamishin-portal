@@ -28,7 +28,8 @@ const props = defineProps<{
     canRegister: boolean;
 }>();
 
-const page = usePage<AppPageProps>();
+const page =
+    usePage<AppPageProps<{ settingsFeatures?: { passkeys?: boolean } }>>();
 const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
     true) as boolean;
 </script>
@@ -112,7 +113,11 @@ const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
                 </div>
 
                 <div class="flex items-center justify-between">
-                    <Label for="remember" class="flex items-center space-x-3">
+                    <Label
+                        v-if="!flow"
+                        for="remember"
+                        class="flex items-center space-x-3"
+                    >
                         <Checkbox id="remember" name="remember" :tabindex="3" />
                         <span>Remember me</span>
                     </Label>
@@ -147,8 +152,8 @@ const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
             </div>
         </Form>
 
-        <SignInWithPasskeyButton v-if="passkeysEnabled" />
+        <SignInWithPasskeyButton v-if="passkeysEnabled" :flow="flow" />
 
-        <SocialLoginButtons />
+        <SocialLoginButtons :flow="flow" />
     </AuthBase>
 </template>

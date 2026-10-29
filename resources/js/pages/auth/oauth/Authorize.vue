@@ -29,6 +29,7 @@ const props = defineProps<{
     scopes: Scope[];
     authToken: string;
     csrfToken: string;
+    flow?: string | null;
     application?: { name: string; environment: string } | null;
     joiningApplication?: boolean;
     request: {
@@ -55,6 +56,10 @@ function submit(method: 'POST' | 'DELETE') {
         client_id: props.client.id,
         auth_token: props.authToken,
     };
+
+    if (props.flow) {
+        fields.flow = props.flow;
+    }
 
     if (method === 'DELETE') {
         fields._method = 'DELETE';

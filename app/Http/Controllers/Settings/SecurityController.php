@@ -6,6 +6,7 @@ use App\Features\FeatureRegistry;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\PasswordUpdateRequest;
 use App\Http\Requests\Settings\TwoFactorAuthenticationRequest;
+use App\Settings\ApplicationFeaturesSettings;
 use Filament\Auth\MultiFactor\App\AppAuthentication;
 use Filament\Auth\MultiFactor\Email\EmailAuthentication;
 use Filament\PanelRegistry;
@@ -31,8 +32,9 @@ class SecurityController extends Controller
         $emailProvider = $providers['email_code'] ?? null;
 
         $user = $twoFactorAuthenticationRequest->user();
-        $mfaAppAvailable = FeatureRegistry::isFeatureAvailableForUser($user, 'settings_mfa_app');
-        $mfaEmailAvailable = FeatureRegistry::isFeatureAvailableForUser($user, 'settings_mfa_email');
+        $mfaEnabled = app(ApplicationFeaturesSettings::class)->two_factor_authentication_enabled;
+        $mfaAppAvailable = $mfaEnabled && FeatureRegistry::isFeatureAvailableForUser($user, 'settings_mfa_app');
+        $mfaEmailAvailable = $mfaEnabled && FeatureRegistry::isFeatureAvailableForUser($user, 'settings_mfa_email');
 
         $props = [
             'mustVerifyEmail' => $user instanceof MustVerifyEmail,
@@ -54,7 +56,7 @@ class SecurityController extends Controller
                     'appRecoveryCodes' => $appProvider instanceof AppAuthentication && $appProvider->isRecoverable(),
                 ],
             ],
-            'canManageTwoFactor' => Features::canManageTwoFactorAuthentication(),
+            'canManageTwoFactor' => $mfaEnabled && Features::canManageTwoFactorAuthentication(),
             'canManagePasskeys' => Features::canManagePasskeys(),
             'passkeys' => Features::canManagePasskeys()
                 ? $twoFactorAuthenticationRequest->user()

@@ -9,7 +9,7 @@ use App\Models\User;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 
-use function Pest\Laravel\actingAs;
+use function Pest\Laravel\get;
 use function Pest\Laravel\getJson;
 use function Pest\Laravel\post;
 use function Pest\Laravel\postJson;
@@ -43,6 +43,24 @@ function oauthTestEnvironment(User $user, string $name = 'test', string $environ
     $application->users()->attach($user, ['environment' => $environment, 'role' => 'member']);
 
     return [$client, $configuration];
+}
+
+/** @return array{string, string} */
+function oauthApplicationLogin(Client $client, User $user, string $scope = 'openid'): array
+{
+    $url = '/oauth/authorize?'.http_build_query([
+        'client_id' => $client->getKey(),
+        'redirect_uri' => 'https://testapp.internal/callback',
+        'response_type' => 'code',
+        'state' => 'flow123',
+        'scope' => $scope,
+    ]);
+    $response = get($url)->assertRedirect();
+    parse_str((string) parse_url((string) $response->headers->get('Location'), PHP_URL_QUERY), $query);
+    $flow = $query['flow'];
+    $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
+
+    return [$flow, (string) $login->headers->get('Location')];
 }
 
 test('openid configuration endpoint returns valid oidc discovery metadata', function (): void {
@@ -104,15 +122,15 @@ test('full oauth2 authorization code flow can be executed end to end', function 
     [$client] = oauthTestEnvironment($user);
 
     // 1. Request authorization view
-    $authPage = actingAs($user)->get(
-        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid profile email'
-    );
+    [$flow, $resume] = oauthApplicationLogin($client, $user, 'openid profile email');
+    $authPage = get($resume);
     $authPage->assertOk();
 
     $authToken = $authPage->original->getData()['page']['props']['authToken'];
 
     // 2. Approve authorization
-    $approve = actingAs($user)->post('/oauth/authorize', [
+    $approve = post('/oauth/authorize', [
+        'flow' => $flow,
         'state' => 'flow123',
         'client_id' => $client->getKey(),
         'auth_token' => $authToken,
@@ -231,14 +249,14 @@ test('authorization approval is refused if application membership changes after 
     $user = User::factory()->create();
     [$client, $environment] = oauthTestEnvironment($user);
 
-    $response = actingAs($user)->get(
-        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid'
-    );
+    [$flow, $resume] = oauthApplicationLogin($client, $user);
+    $response = get($resume);
     $response->assertOk();
     $authToken = $response->original->getData()['page']['props']['authToken'];
     $environment->application->users('development')->detach($user);
 
     post('/oauth/authorize', [
+        'flow' => $flow,
         'state' => 'flow123',
         'client_id' => $client->getKey(),
         'auth_token' => $authToken,
@@ -250,7 +268,6 @@ test('authorization refuses an application without environment membership before
     [$client, $environment] = oauthTestEnvironment($user);
     $environment->application->users('development')->detach($user);
 
-    actingAs($user)->get(
-        '/oauth/authorize?client_id='.$client->getKey().'&redirect_uri=https://testapp.internal/callback&response_type=code&state=flow123&scope=openid'
-    )->assertForbidden();
+    [, $resume] = oauthApplicationLogin($client, $user);
+    get($resume)->assertForbidden();
 });

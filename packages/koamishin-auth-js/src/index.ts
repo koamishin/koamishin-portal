@@ -43,11 +43,22 @@ export class KoamishinClient {
      * Redirect browser to Koamishin Portal authorization page with PKCE challenge.
      */
     async redirectToSignIn(): Promise<void> {
+        return this.redirectToAuthentication(false);
+    }
+
+    /**
+     * Open the hosted registration page for this application.
+     */
+    async redirectToSignUp(): Promise<void> {
+        return this.redirectToAuthentication(true);
+    }
+
+    protected async redirectToAuthentication(signUp: boolean): Promise<void> {
         const { verifier, challenge } = await generatePkce();
         const state = generateState();
 
-        sessionStorage.setItem('koamishin_code_verifier', verifier);
-        sessionStorage.setItem('koamishin_oauth_state', state);
+        sessionStorage.setItem(this.storageKey('code_verifier'), verifier);
+        sessionStorage.setItem(this.storageKey('oauth_state'), state);
 
         const params = new URLSearchParams({
             client_id: this.clientId,
@@ -58,6 +69,10 @@ export class KoamishinClient {
             code_challenge: challenge,
             code_challenge_method: 'S256',
         });
+
+        if (signUp) {
+            params.set('screen_hint', 'signup');
+        }
 
         window.location.href = `${this.portalUrl}/oauth/authorize?${params.toString()}`;
     }
@@ -79,12 +94,16 @@ export class KoamishinClient {
             );
         }
 
-        const savedState = sessionStorage.getItem('koamishin_oauth_state');
+        const savedState = sessionStorage.getItem(
+            this.storageKey('oauth_state'),
+        );
         if (!savedState || savedState !== state) {
             throw new Error('OAuth state mismatch. Request may be untrusted.');
         }
 
-        const verifier = sessionStorage.getItem('koamishin_code_verifier');
+        const verifier = sessionStorage.getItem(
+            this.storageKey('code_verifier'),
+        );
         if (!verifier) {
             throw new Error('PKCE code verifier not found in session storage.');
         }
@@ -110,12 +129,15 @@ export class KoamishinClient {
 
         const tokens: TokenResponse = await tokenResponse.json();
 
-        sessionStorage.removeItem('koamishin_code_verifier');
-        sessionStorage.removeItem('koamishin_oauth_state');
-        sessionStorage.setItem('koamishin_access_token', tokens.access_token);
+        sessionStorage.removeItem(this.storageKey('code_verifier'));
+        sessionStorage.removeItem(this.storageKey('oauth_state'));
+        sessionStorage.setItem(
+            this.storageKey('access_token'),
+            tokens.access_token,
+        );
         if (tokens.refresh_token) {
             sessionStorage.setItem(
-                'koamishin_refresh_token',
+                this.storageKey('refresh_token'),
                 tokens.refresh_token,
             );
         }
@@ -130,7 +152,7 @@ export class KoamishinClient {
      */
     async refreshToken(token?: string): Promise<TokenResponse> {
         const refreshToken =
-            token ?? sessionStorage.getItem('koamishin_refresh_token');
+            token ?? sessionStorage.getItem(this.storageKey('refresh_token'));
 
         if (!refreshToken) {
             throw new Error('No refresh token available.');
@@ -154,10 +176,13 @@ export class KoamishinClient {
         }
 
         const tokens: TokenResponse = await response.json();
-        sessionStorage.setItem('koamishin_access_token', tokens.access_token);
+        sessionStorage.setItem(
+            this.storageKey('access_token'),
+            tokens.access_token,
+        );
         if (tokens.refresh_token) {
             sessionStorage.setItem(
-                'koamishin_refresh_token',
+                this.storageKey('refresh_token'),
                 tokens.refresh_token,
             );
         }
@@ -170,7 +195,7 @@ export class KoamishinClient {
      */
     async getUser(token?: string): Promise<KoamishinUser> {
         const accessToken =
-            token ?? sessionStorage.getItem('koamishin_access_token');
+            token ?? sessionStorage.getItem(this.storageKey('access_token'));
 
         if (!accessToken) {
             throw new Error('No access token available.');
@@ -194,9 +219,15 @@ export class KoamishinClient {
      */
     signOut(): void {
         if (typeof sessionStorage !== 'undefined') {
-            sessionStorage.removeItem('koamishin_access_token');
-            sessionStorage.removeItem('koamishin_refresh_token');
+            sessionStorage.removeItem(this.storageKey('access_token'));
+            sessionStorage.removeItem(this.storageKey('refresh_token'));
+            sessionStorage.removeItem(this.storageKey('oauth_state'));
+            sessionStorage.removeItem(this.storageKey('code_verifier'));
         }
+    }
+
+    protected storageKey(key: string): string {
+        return `koamishin:${encodeURIComponent(this.portalUrl)}:${encodeURIComponent(this.clientId)}:${key}`;
     }
 }
 

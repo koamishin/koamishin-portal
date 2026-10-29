@@ -13,6 +13,8 @@ import AuthLayout from '@/layouts/AuthLayout.vue';
 import { store } from '@/routes/two-factor/login';
 import type { TwoFactorConfigContent } from '@/types';
 
+defineProps<{ flow?: string | null }>();
+
 const authConfigContent = computed<TwoFactorConfigContent>(() => {
     if (showRecoveryInput.value) {
         return {
@@ -58,6 +60,12 @@ const code = ref<string>('');
                     @error="code = ''"
                     #default="{ errors, processing, clearErrors }"
                 >
+                    <input
+                        v-if="flow"
+                        type="hidden"
+                        name="flow"
+                        :value="flow"
+                    />
                     <input type="hidden" name="code" :value="code" />
                     <div
                         class="flex flex-col items-center justify-center space-y-3 text-center"
@@ -104,6 +112,12 @@ const code = ref<string>('');
                     reset-on-error
                     #default="{ errors, processing, clearErrors }"
                 >
+                    <input
+                        v-if="flow"
+                        type="hidden"
+                        name="flow"
+                        :value="flow"
+                    />
                     <Input
                         name="recovery_code"
                         type="text"

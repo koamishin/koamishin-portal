@@ -7,6 +7,7 @@ use App\Concerns\ProfileValidationRules;
 use App\Enums\RoleEnums;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAuthentication;
+use App\Settings\ApplicationFeaturesSettings;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
@@ -46,7 +47,7 @@ class CreateNewUser implements CreatesNewUsers
     {
         /** @var Role $role */
         $role = Role::query()->firstOrCreate([
-            'name' => RoleEnums::USER->value,
+            'name' => app(ApplicationFeaturesSettings::class)->default_user_role ?: RoleEnums::USER->value,
             'guard_name' => 'web',
         ]);
 

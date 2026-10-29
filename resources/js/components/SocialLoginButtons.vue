@@ -2,6 +2,10 @@
 import { usePage } from '@inertiajs/vue3';
 import { computed } from 'vue';
 import { Button } from '@/components/ui/button';
+import { redirect } from '@/routes/auth/social';
+import type { AppPageProps } from '@/types';
+
+const props = defineProps<{ flow?: string | null }>();
 
 type SocialProvider = {
     slug: 'github' | 'google' | 'facebook';
@@ -9,7 +13,7 @@ type SocialProvider = {
     url: string;
 };
 
-const page = usePage<{ socialProviders?: SocialProvider[] }>();
+const page = usePage<AppPageProps<{ socialProviders?: SocialProvider[] }>>();
 
 const providers = computed<SocialProvider[]>(
     () => page.props.socialProviders ?? [],
@@ -36,7 +40,13 @@ const providers = computed<SocialProvider[]>(
             <a
                 v-for="provider in providers"
                 :key="provider.slug"
-                :href="provider.url"
+                :href="
+                    props.flow
+                        ? redirect.url(provider.slug, {
+                              query: { flow: props.flow },
+                          })
+                        : provider.url
+                "
                 class="block"
                 :data-test="`social-login-${provider.slug}`"
             >

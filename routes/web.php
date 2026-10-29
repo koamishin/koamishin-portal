@@ -10,6 +10,7 @@ use App\Http\Controllers\Setup\SetupController;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
+use App\Settings\ApplicationFeaturesSettings;
 use Filament\Facades\Filament;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,7 +19,7 @@ use Inertia\Inertia;
 use Laravel\Fortify\Features;
 
 Route::get('/', fn () => Inertia::render('Welcome', [
-    'canRegister' => Features::enabled(Features::registration()),
+    'canRegister' => Features::enabled(Features::registration()) && app(ApplicationFeaturesSettings::class)->registration_enabled,
 ]))->name('home');
 
 Route::get('dashboard', fn () => Inertia::render('Dashboard'))->middleware(['auth', 'verified'])->name('dashboard');

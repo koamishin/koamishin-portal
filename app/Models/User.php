@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\OAuth\ApplicationAuthentication;
+use App\Settings\ApplicationFeaturesSettings;
 use Database\Factories\UserFactory;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthentication;
 use Filament\Auth\MultiFactor\App\Concerns\InteractsWithAppAuthenticationRecovery;
@@ -14,6 +16,7 @@ use Filament\Auth\MultiFactor\Email\Contracts\HasEmailAuthentication;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasTenants;
 use Filament\Panel;
+use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -67,7 +70,9 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
     use InteractsWithAppAuthentication;
     use InteractsWithAppAuthenticationRecovery;
     use InteractsWithEmailAuthentication;
-    use LogsActivity;
+    use LogsActivity {
+        shouldLogEvent as protected shouldLogActivityEvent;
+    }
     use PasskeyAuthenticatable;
     use TwoFactorAuthenticatable;
 
@@ -78,7 +83,25 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
 
     public function canImpersonate(): bool
     {
-        return $this->hasRole('admin');
+        return app(ApplicationFeaturesSettings::class)->user_impersonation_enabled && $this->hasRole('admin');
+    }
+
+    protected function shouldLogEvent(string $eventName): bool
+    {
+        return app(ApplicationFeaturesSettings::class)->activity_log_enabled && $this->shouldLogActivityEvent($eventName);
+    }
+
+    public function sendEmailVerificationNotification(): void
+    {
+        if (! app(ApplicationFeaturesSettings::class)->email_verification_required) {
+            return;
+        }
+
+        $this->notify(new VerifyEmail);
+        $flow = app(ApplicationAuthentication::class)->flowId(request());
+        if ($flow !== null) {
+            request()->session()->put('koamishin.verification_sent.'.$flow, true);
+        }
     }
 
     public function getActivitylogOptions(): LogOptions
