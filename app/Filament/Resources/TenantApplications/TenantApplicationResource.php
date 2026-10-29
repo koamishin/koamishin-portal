@@ -168,7 +168,7 @@ class TenantApplicationResource extends Resource
                 Section::make('Social connections')
                     ->description('Choose Portal credentials, disable a provider, or configure credentials for this application environment. Custom secrets are encrypted and never displayed again.')
                     ->visible(fn (?TenantApplication $record): bool => $record instanceof TenantApplication)
-                    ->components(array_map(fn (SocialLoginProvider $provider): Section => self::socialConnectionFields($provider), SocialLoginProvider::cases())),
+                    ->components(array_map(self::socialConnectionFields(...), SocialLoginProvider::cases())),
             ]);
     }
 
@@ -177,7 +177,7 @@ class TenantApplicationResource extends Resource
     {
         $config = $application?->environments()->where('environment', $environment)->first();
         $values = [
-            'allow_signups' => $application ? $config?->getSetting('allow_signups', false) === true : $environment === 'development',
+            'allow_signups' => $application instanceof \App\Models\TenantApplication ? $config?->getSetting('allow_signups', false) === true : $environment === 'development',
             'email_verification_required' => $config?->getSetting('email_verification_required', false) === true,
             'passkeys_enabled' => $config?->getSetting('passkeys_enabled', true) === true,
             'sso_enabled' => $config?->getSetting('sso_enabled', false) === true,
