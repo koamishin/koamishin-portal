@@ -1,7 +1,11 @@
 <script setup lang="ts">
-import { Head, router } from '@inertiajs/vue3';
+import { Head } from '@inertiajs/vue3';
 import { Button } from '@/components/ui/button';
 import AuthBase from '@/layouts/AuthLayout.vue';
+import {
+    approve as approveAuthorization,
+    deny as denyAuthorization,
+} from '@/routes/passport/authorizations';
 
 interface Client {
     id: string;
@@ -24,36 +28,65 @@ const props = defineProps<{
     user: User;
     scopes: Scope[];
     authToken: string;
+    csrfToken: string;
+    application?: { name: string; environment: string } | null;
+    joiningApplication?: boolean;
     request: {
         state: string;
     };
 }>();
 
-function approve() {
-    router.post('/oauth/authorize', {
+/**
+ * Submit a real form so the OAuth redirect to the client application is
+ * followed by the browser, not by an XHR request.
+ */
+function submit(method: 'POST' | 'DELETE') {
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action =
+        method === 'POST'
+            ? approveAuthorization.url()
+            : denyAuthorization.url();
+    form.style.display = 'none';
+
+    const fields: Record<string, string> = {
+        _token: props.csrfToken,
         state: props.request.state,
         client_id: props.client.id,
         auth_token: props.authToken,
-    });
+    };
+
+    if (method === 'DELETE') {
+        fields._method = 'DELETE';
+    }
+
+    for (const [name, value] of Object.entries(fields)) {
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = value;
+        form.appendChild(input);
+    }
+
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function approve() {
+    submit('POST');
 }
 
 function deny() {
-    router.delete('/oauth/authorize', {
-        data: {
-            state: props.request.state,
-            client_id: props.client.id,
-            auth_token: props.authToken,
-        },
-    });
+    submit('DELETE');
 }
 </script>
 
 <template>
     <AuthBase
-        :title="`${client.name} wants access`"
+        :title="`${application?.name ?? client.name} wants access`"
         description="Authorize this application to access your Koamishin account"
     >
-        <Head :title="`Authorize ${client.name}`" />
+        <Head :title="`Authorize ${application?.name ?? client.name}`" />
 
         <div class="space-y-6">
             <div
@@ -64,6 +97,12 @@ function deny() {
                     {{ user.name }} ({{ user.email }})
                 </p>
             </div>
+
+            <p v-if="joiningApplication" class="text-sm text-muted-foreground">
+                Authorizing will add your Portal account to
+                {{ application?.name ?? client.name }} as a member in its
+                {{ application?.environment }} environment.
+            </p>
 
             <div v-if="scopes.length > 0" class="space-y-3">
                 <p

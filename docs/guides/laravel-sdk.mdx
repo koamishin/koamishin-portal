@@ -9,7 +9,7 @@ The PHP SDK connects a Laravel application to Koamishin Portal using OAuth 2.0 a
 
 ## 1. Prepare the Portal
 
-Create an organization and a Laravel application in the Portal. Register the exact callback URL used by your Laravel application and save the displayed authorization-code client ID and secret. Enroll a test user in both the organization and this application environment. Development and production use separate clients and memberships. The other environment's callback list starts empty. See [tenancy and OAuth](core-concepts.mdx).
+Create an organization and a Laravel application in the Portal. Register the exact callback URL used by your Laravel application and save the displayed authorization-code client ID and secret. For contextual self-service registration, enable **Allow self-service signup** for this environment. If that policy is off or missing, enroll the test user in both the organization and application environment before login. Development and production use separate clients and memberships. The other environment's callback list starts empty. See [tenancy and OAuth](core-concepts.mdx).
 
 Deploy a Portal release that includes the scoped API described here. Record the Portal application ID and environment; the SDK checks both against each userinfo response to prevent a token for another application from authenticating to yours.
 
@@ -55,7 +55,7 @@ Add a guard in the consuming application's `config/auth.php`:
 ],
 ```
 
-## 3. Add login and protected routes
+## 3. Add signup, login, and protected routes
 
 Add the following routes to `routes/web.php`. The web middleware and session must be active. The callback URL must exactly match the one registered in the Portal.
 
@@ -63,6 +63,10 @@ Add the following routes to `routes/web.php`. The web middleware and session mus
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Koamishin\Auth\Facades\Koamishin;
+
+Route::get('/register', fn () => redirect()->away(
+    Koamishin::getRegistrationUrl('/dashboard')
+))->name('register');
 
 Route::get('/login', fn () => redirect()->away(
     Koamishin::getLoginUrl('/dashboard')
@@ -103,6 +107,10 @@ Route::post('/logout', function () {
     return redirect('/');
 })->name('logout');
 ```
+
+`getRegistrationUrl()` creates a session-backed OAuth transaction with PKCE and `screen_hint=signup`, so the Portal can show the requesting application's signup page and return to that app. The Portal validates the client and exact callback before presenting this context. Use this method for an application's Register link rather than redirecting to the generic Portal `/register` page.
+
+The environment must explicitly allow self-service signup (`settings.allow_signups === true`). New accounts can then be enrolled during contextual signup; existing Portal users can join another open application after approving its authorization request. Missing or false policies require administrator enrollment. Direct generic Portal registration remains a global account-creation flow without application context. See the [two-app walkthrough](../getting-started/centralized-auth.mdx).
 
 Submit logout using a POST form with `@csrf`. The SDK validates the OAuth state, exchanges the authorization code, rotates the local session ID, and revalidates the user's access token with the Portal for authenticated requests. It can refresh expired access tokens. If the Portal is unavailable, authentication can fail; plan for this dependency. Local logout clears the consuming application's Koamishin session; it does not revoke the Portal token or end the Portal's own browser session.
 
@@ -147,6 +155,8 @@ if ($sessions['data'] !== []) {
 }
 ```
 
+New accounts start with empty application metadata. The `metadata:public` scope exposes only that application's public values through userinfo; private values require authorized management access. Metadata is not copied between separate applications, even when the user ID is the same.
+
 These operations apply only to the credential's application environment. A session here is an OAuth grant: revocation targets the selected access/refresh token pair, not all Portal browser sessions or other applications. Refreshing a grant changes its ID, and a refresh concurrent with revocation can race; list again and handle a stale ID. See [application user metadata](user-metadata.mdx) for replacement semantics and privacy, and [API reference](../reference/examples.mdx) for scopes and membership operations.
 
 ## 5. Receive webhooks
@@ -157,7 +167,7 @@ The [package README](../../packages/koamishin-auth-php/README.md#verify-and-proc
 
 ## Troubleshooting
 
-- **Login is denied:** Check that the callback matches, the OAuth client is active and uniquely mapped, and the user is enrolled in the organization and correct application environment. Verify the SDK's expected application ID and environment.
+- **Signup or login is denied:** Check the exact callback, the active client's unique environment mapping, and the SDK's expected application ID/environment. A user without membership can join only when that environment explicitly allows self-service signup and they complete the appropriate signup or consent flow; otherwise an administrator must enroll them.
 - **Management returns 403 or 404:** Confirm that the management credential belongs to the target environment, has the required scopes, and the user is enrolled there.
 - **Webhook signature fails:** Check the secret, format, original body, headers, and clock synchronization. Confirm the endpoint is assigned to the correct environment and its queue worker is running.
 - **Package method or configuration is missing:** Verify the installed Composer version contains this guide's changes; the repository source can be newer than a published package.

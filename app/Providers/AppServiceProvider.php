@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Features\FeatureRegistry;
 use App\Models\User;
 use App\Observers\UserObserver;
+use App\Services\OAuth\ApplicationAuthentication;
 use Carbon\CarbonImmutable;
 use Filament\Panel;
 use Illuminate\Support\Facades\Date;
@@ -108,6 +109,9 @@ class AppServiceProvider extends ServiceProvider
             fn (array $parameters): Response => Inertia::render('auth/oauth/Authorize', [
                 'request' => $parameters['request'],
                 'authToken' => $parameters['authToken'],
+                'csrfToken' => csrf_token(),
+                'application' => app(ApplicationAuthentication::class)->pageContext(request()),
+                'joiningApplication' => (bool) request()->attributes->get('koamishin.joining_application', false),
                 'client' => $parameters['client'],
                 'user' => $parameters['user'],
                 'scopes' => $parameters['scopes'],

@@ -4,7 +4,10 @@ namespace App\Providers;
 
 use App\Actions\Fortify\CreateNewUser;
 use App\Actions\Fortify\ResetUserPassword;
+use App\Http\Responses\ApplicationLoginResponse;
+use App\Http\Responses\ApplicationRegisterResponse;
 use App\Models\User;
+use App\Services\OAuth\ApplicationAuthentication;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -14,6 +17,8 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\LoginResponse;
+use Laravel\Fortify\Contracts\RegisterResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -25,7 +30,8 @@ class FortifyServiceProvider extends ServiceProvider
     #[\Override]
     public function register(): void
     {
-        //
+        $this->app->bind(LoginResponse::class, ApplicationLoginResponse::class);
+        $this->app->bind(RegisterResponse::class, ApplicationRegisterResponse::class);
     }
 
     /**
@@ -81,6 +87,8 @@ class FortifyServiceProvider extends ServiceProvider
             'canResetPassword' => Features::enabled(Features::resetPasswords()),
             'canRegister' => Features::enabled(Features::registration()),
             'status' => $request->session()->get('status'),
+            'application' => app(ApplicationAuthentication::class)->pageContext($request),
+            'flow' => app(ApplicationAuthentication::class)->flowId($request),
         ]));
 
         Fortify::resetPasswordView(fn (Request $request) => Inertia::render('auth/ResetPassword', [
@@ -97,7 +105,9 @@ class FortifyServiceProvider extends ServiceProvider
             'status' => $request->session()->get('status'),
         ]));
 
-        Fortify::registerView(fn () => Inertia::render('auth/Register', [
+        Fortify::registerView(fn (Request $request) => Inertia::render('auth/Register', [
+            'application' => app(ApplicationAuthentication::class)->pageContext($request),
+            'flow' => app(ApplicationAuthentication::class)->flowId($request),
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ]));
 

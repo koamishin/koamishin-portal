@@ -6,6 +6,8 @@ use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
 use App\Enums\RoleEnums;
 use App\Models\User;
+use App\Services\OAuth\ApplicationAuthentication;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Fortify\Contracts\CreatesNewUsers;
 use Spatie\Permission\Models\Role;
@@ -26,15 +28,18 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $this->passwordRules(),
         ])->validate();
 
-        $user = User::create([
-            'name' => $input['name'],
-            'email' => $input['email'],
-            'password' => $input['password'],
-        ]);
+        return DB::transaction(function () use ($input): User {
+            $user = User::query()->create([
+                'name' => $input['name'],
+                'email' => $input['email'],
+                'password' => $input['password'],
+            ]);
 
-        $user->assignRole($this->defaultRole());
+            $user->assignRole($this->defaultRole());
+            app(ApplicationAuthentication::class)->enrollNewUser(request(), $user);
 
-        return $user;
+            return $user;
+        });
     }
 
     protected function defaultRole(): Role

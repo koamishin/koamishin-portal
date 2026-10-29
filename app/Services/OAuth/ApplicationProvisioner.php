@@ -41,6 +41,11 @@ class ApplicationProvisioner
             throw ValidationException::withMessages(['description' => 'The description must be text.']);
         }
 
+        $allowSignups = $data['allow_signups'] ?? ($environment === 'development');
+        if (! is_bool($allowSignups)) {
+            throw ValidationException::withMessages(['allow_signups' => 'Choose whether self-service signup is allowed.']);
+        }
+
         $redirectUris = [];
         foreach ($inputRedirectUris as $uri) {
             if (! is_string($uri)) {
@@ -56,6 +61,7 @@ class ApplicationProvisioner
             'environment' => $environment,
             'redirect_uris' => $redirectUris,
             'description' => $description,
+            'allow_signups' => $allowSignups,
         ];
 
         $this->validateRedirects($data['environment'], $data['redirect_uris']);
@@ -88,7 +94,11 @@ class ApplicationProvisioner
                     'environment' => $environment,
                     'oauth_client_id' => (string) $client->getKey(),
                     'redirect_uris' => $environment === $data['environment'] ? $data['redirect_uris'] : [],
-                    'settings' => [],
+                    'settings' => [
+                        'allow_signups' => $environment === $data['environment']
+                            ? $data['allow_signups']
+                            : $environment === 'development',
+                    ],
                 ]);
 
                 $credentials[$environment] = [

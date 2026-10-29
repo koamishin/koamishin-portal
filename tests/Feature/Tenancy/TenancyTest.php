@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Filament\Pages\Tenancy\RegisterTenant;
 use App\Filament\Resources\TenantApplications\Pages\CreateTenantApplication;
+use App\Filament\Resources\TenantApplications\Pages\EditTenantApplication;
 use App\Filament\Resources\TenantApplications\Pages\ListTenantApplications;
 use App\Models\Tenant;
 use App\Models\TenantApplication;
@@ -15,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 use Laravel\Passport\Client;
 use Livewire\Livewire;
 use Spatie\Permission\Models\Role;
+
+use function Pest\Laravel\actingAs;
 
 test('admin can create an organization tenant and applications', function (): void {
     Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
@@ -115,6 +118,59 @@ test('provisioning creates independent confidential clients for both environment
     expect($production->oauthClient->getAttribute('redirect_uris'))->toBe(['https://backend.example.test/auth/callback']);
     expect(Hash::check($credentials['production']['secret'], $production->oauthClient->getAttribute('secret')))->toBeTrue();
     expect($credentials['production']['secret'])->not->toBe($credentials['development']['secret']);
+    expect($development->getSetting('allow_signups'))->toBeTrue();
+    expect($production->getSetting('allow_signups'))->toBeFalse();
+});
+
+test('provisioning respects an explicit self-service signup policy for the selected environment', function (string $environment, bool $allowSignups): void {
+    $tenant = Tenant::query()->create(['name' => 'Policy org', 'slug' => 'policy-org']);
+
+    $application = app(ApplicationProvisioner::class)->create($tenant, [
+        'name' => 'Policy app',
+        'framework' => 'laravel',
+        'environment' => $environment,
+        'redirect_uris' => ['https://app.example.test/callback'],
+        'allow_signups' => $allowSignups,
+    ]);
+
+    expect($application->environments()->where('environment', $environment)->sole()->getSetting('allow_signups'))->toBe($allowSignups);
+})->with([
+    'closed development' => ['development', false],
+    'open production' => ['production', true],
+]);
+
+test('editing an application saves signup policy only for the selected environment and preserves other settings', function (): void {
+    Role::query()->firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+    $admin = User::factory()->create();
+    $admin->assignRole('super_admin');
+    $tenant = Tenant::query()->create(['name' => 'Edit policy org', 'slug' => 'edit-policy-org']);
+    $application = app(ApplicationProvisioner::class)->create($tenant, [
+        'name' => 'Edit policy app',
+        'framework' => 'laravel',
+        'environment' => 'development',
+        'redirect_uris' => ['http://localhost:8000/callback'],
+    ]);
+    $development = $application->environments()->where('environment', 'development')->sole();
+    $production = $application->environments()->where('environment', 'production')->sole();
+    $development->update(['settings' => ['custom_setting' => 'development']]);
+    $production->update(['settings' => ['allow_signups' => true, 'custom_setting' => 'production']]);
+    actingAs($admin);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($tenant);
+    Filament::bootCurrentPanel();
+
+    Livewire::actingAs($admin)
+        ->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSetStrict('data.allow_signups', false)
+        ->set('data.environment', 'production')
+        ->assertSetStrict('data.allow_signups', true)
+        ->set('data.allow_signups', false)
+        ->set('data.redirect_uris', ['https://app.example.test/callback'])
+        ->call('save')
+        ->assertHasNoErrors();
+
+    expect($development->fresh()->settings)->toBe(['custom_setting' => 'development']);
+    expect($production->fresh()->settings)->toBe(['allow_signups' => false, 'custom_setting' => 'production']);
 });
 
 test('production provisioning refuses an insecure callback without creating a client', function (): void {
@@ -149,6 +205,7 @@ test('provisioning rejects malformed application input before creating clients',
     'non-string framework' => [['framework' => ['laravel']]],
     'non-array redirect list' => [['redirect_uris' => 'http://localhost:8000/callback']],
     'non-string redirect' => [['redirect_uris' => [123]]],
+    'non-boolean signup policy' => [['allow_signups' => 'true']],
 ]);
 
 test('legacy client migration binds only unambiguous active clients without replacing existing bindings', function (): void {

@@ -1,81 +1,66 @@
 ---
 title: Centralized login for two Laravel applications
-description: Register one Portal account and use it to sign in to two separately configured Laravel applications.
+description: Start signup in App A, create one Portal account, and sign in to App B with the same identity.
 ---
 
 # Centralized login for two Laravel applications
 
-This walkthrough connects two Laravel applications to one local Koamishin Portal. A person registers one account with the Portal; after an administrator enrolls that account, the person can sign in to both applications. Each application receives its own OAuth client and maintains its own session.
+This walkthrough connects two Laravel applications to one Koamishin Portal. App A starts a contextual registration flow, the Portal creates the account, and OAuth returns the user to App A. App B can then authenticate the same Portal account through its own client. Each app keeps its own local session, application membership, and metadata.
 
-**Current registration behavior:** the Portal's `/register` page creates a global Portal account. It does not automatically grant access to the application that sent the user there. An administrator must enroll the account in each organization and application environment. An unenrolled user receives 403 when the OAuth authorization request is checked.
+Self-service access is controlled by the selected environment's **Allow self-service signup** setting. When it is enabled, a new account can join that environment during signup, and an existing Portal user can join another application after approving its authorization request. When the setting is missing or false, an administrator must enroll the user first. Creating a global account directly at the Portal's generic `/register` page does not choose an application or grant application access.
 
 ## Before you start
 
-Complete [Portal installation](installation.mdx), including `/setup`, and keep the Portal running. This walkthrough uses development-only HTTP origins:
+Complete [Portal installation](installation.mdx), including `/setup`. The local test environment uses these development-only origins:
 
 | Service | Origin                         | Callback                                         |
 | ------- | ------------------------------ | ------------------------------------------------ |
-| Portal  | `http://portal.localhost:8000` | —                                                |
-| App A   | `http://app-a.localhost:8001`  | `http://app-a.localhost:8001/koamishin/callback` |
-| App B   | `http://app-b.localhost:8002`  | `http://app-b.localhost:8002/koamishin/callback` |
+| Portal  | `http://portal.localhost:8120` | —                                                |
+| App A   | `http://app-a.localhost:8121`  | `http://app-a.localhost:8121/koamishin/callback` |
+| App B   | `http://app-b.localhost:8122`  | `http://app-b.localhost:8122/koamishin/callback` |
 
-Make sure all three names resolve to your own machine, for example to `127.0.0.1`; local hostname resolution varies by operating system. Configure local hosts/DNS if needed. These separate hostnames keep browser session and CSRF cookies from different applications from interfering with each other. Do not use these HTTP origins for production.
+Make sure all three hostnames resolve to the machine running the servers. Separate hostnames and host-only cookies keep session and CSRF cookies from different apps from interfering. Use HTTPS and your actual domains in production.
 
-In the Portal's `.env`, set the following before starting or restarting `composer run dev`:
+For the existing development harness in `~/koamishin-sso-test`, `./run-sso-test.sh start` starts these three servers. Its Portal process uses the isolated `database/sso-test.sqlite` database, not the Portal's normal database. Starting a separate Portal server against the normal database will not find the harness's applications and credentials. Review setup/reset scripts before using them: they are test helpers that can replace test accounts, clients, memberships, and metadata.
+
+For your own local instance, configure its Portal origin and session settings before starting the server:
 
 ```dotenv
-APP_URL=http://portal.localhost:8000
+APP_URL=http://portal.localhost:8120
 SESSION_COOKIE=koamishin_portal_session
 SESSION_DOMAIN=null
 MAIL_MAILER=log
 ```
 
-`MAIL_MAILER=log` is for local testing: verification messages and their links are written to `storage/logs/laravel.log`. Configure a real mail service for production. Restart the Portal after changing its configuration and sign in at the new Portal origin. Use one browser profile for the administrator and a separate profile or private window for the test user, so their Portal sessions do not replace each other.
+`MAIL_MAILER=log` is for local testing. Verification messages and their links are written to `storage/logs/laravel.log`; configure a real mail transport for production. Use a separate browser profile for the administrator and the test user so their Portal sessions do not replace each other.
 
-## 1. Create two application clients
+## 1. Configure the applications and signup policy
 
-In the Portal administration panel, create or select an organization. Under **Applications**, create these applications separately:
+In the Portal admin panel, select an organization and create **App A** and **App B** separately:
 
-| Setting      | App A                                            | App B                                            |
-| ------------ | ------------------------------------------------ | ------------------------------------------------ |
-| Name         | App A                                            | App B                                            |
-| Framework    | Laravel                                          | Laravel                                          |
-| Environment  | Development                                      | Development                                      |
-| Callback URL | `http://app-a.localhost:8001/koamishin/callback` | `http://app-b.localhost:8002/koamishin/callback` |
+| Setting                   | App A                                            | App B                                            |
+| ------------------------- | ------------------------------------------------ | ------------------------------------------------ |
+| Framework                 | Laravel                                          | Laravel                                          |
+| Environment               | Development                                      | Development                                      |
+| Callback URL              | `http://app-a.localhost:8121/koamishin/callback` | `http://app-b.localhost:8122/koamishin/callback` |
+| Allow self-service signup | On for this walkthrough                          | On for this walkthrough                          |
 
-Save the displayed **development** client ID and secret for each app immediately. The secret is shown only once. Also record each numeric Portal application ID; the Laravel environment snippet on the application page includes `KOAMISHIN_APPLICATION_ID`. Do not reuse App A's client credentials or application ID for App B. Each production environment has separate credentials and starts without a callback URL.
+Save each development client ID, one-time secret, and numeric application ID. The application's Laravel environment snippet includes `KOAMISHIN_APPLICATION_ID`. Register the exact callback; a different host, port, or path is a different callback. The Portal validates the client and callback before displaying contextual login or registration.
 
-## 2. Register and enroll one user
+To change an existing environment's policy, edit the application, choose that environment, and set **Allow self-service signup**. The stored setting is `tenant_application_environments.settings.allow_signups`; only the JSON boolean `true` enables it. Missing or false values keep self-service access closed. Set this policy deliberately for development and production separately.
 
-In the test user's browser profile, open `http://portal.localhost:8000/register` and register a new account. Use a real test email you can identify in the admin panel. If using the local log mailer, retrieve the verification link from the Portal log as needed. OAuth authorization currently checks membership and does not itself enforce verified email; the Portal dashboard has a separate verification requirement.
+Two consumers can intentionally share one Portal application and register both callbacks on one client. They then share the application ID, membership boundary, and metadata. To test independent applications, use separate application IDs and client credentials as shown here.
 
-In the administrator profile:
+## 2. Configure the Laravel clients
 
-1. Confirm that the exact email is present under **Users** in the Portal.
-2. Select the organization and **App A** in the top bar, then open the Dashboard and choose **Import Users**.
-3. Select **JSON Format**, choose **Development**, and enter the existing email, replacing the example:
-
-    ```json
-    [{ "email": "person@example.test" }]
-    ```
-
-4. Turn **Auto-verify imported email addresses** and **Update details if user email already exists** off, then import. This attaches the existing account to the selected organization and application environment without changing its password or existing roles.
-5. Select **App B** and repeat the import for its development environment. Verify the user appears in each selected application's Dashboard user list.
-
-Confirm the email exists before importing: an unknown email creates a new Portal account with a generated password. An existing user may be counted as **skipped** even though the membership was attached; check the application user list rather than relying on that count. Development and production memberships are separate.
-
-An alternative for server-side administration is to first assign an existing user to the organization, then use a management client with `memberships:write` to enroll their known Portal user ID. See the [API reference](../reference/examples.mdx). The management user list only includes users already enrolled in that application environment.
-
-## 3. Prepare the Laravel applications
-
-Use two existing Laravel applications, or create two new Laravel 13 projects in a separate directory:
+Use the existing `app-a/` and `app-b/` projects, or create two new Laravel 13 projects:
 
 ```bash
 composer create-project laravel/laravel app-a '^13.0' --no-interaction
 composer create-project laravel/laravel app-b '^13.0' --no-interaction
 ```
 
-In **each** application's directory, install an SDK version containing the current features and publish its configuration:
+Install an SDK version containing `getRegistrationUrl()` in each app. The repository source can be newer than the stable Composer release. For development, use the updated branch and commit the consuming project's lockfile to pin the resolved revision:
 
 ```bash
 composer config repositories.koamishin-auth vcs https://github.com/koamishin/auth-php.git
@@ -83,43 +68,43 @@ composer require koamishin/auth-php:dev-main
 php artisan vendor:publish --tag=koamishin-config --no-interaction
 ```
 
-These commands use the SDK development branch because a stable package release may not yet include the features described here. Commit the consuming project's `composer.lock` to pin the resolved revision; use a reviewed release for production. The package registers its Laravel service provider automatically.
+Use a reviewed release for production. The local test projects may instead use a Composer path repository pointing to the Portal's `packages/koamishin-auth-php` directory; changes to that source are then available directly to the clients.
 
-Set App A's `.env`, replacing the client values and application ID with the ones saved for **App A**:
+Configure App A's `.env` with its own credentials and actual numeric application ID:
 
 ```dotenv
-APP_URL=http://app-a.localhost:8001
+APP_URL=http://app-a.localhost:8121
 SESSION_COOKIE=app_a_session
 SESSION_DOMAIN=null
 
-KOAMISHIN_PORTAL_URL=http://portal.localhost:8000
+KOAMISHIN_PORTAL_URL=http://portal.localhost:8120
 KOAMISHIN_CLIENT_ID=app-a-development-client-id
 KOAMISHIN_CLIENT_SECRET=app-a-development-client-secret
-KOAMISHIN_REDIRECT_URI=http://app-a.localhost:8001/koamishin/callback
-KOAMISHIN_APPLICATION_ID=app-a-numeric-application-id
+KOAMISHIN_REDIRECT_URI=http://app-a.localhost:8121/koamishin/callback
+KOAMISHIN_APPLICATION_ID=app-a-numeric-id
 KOAMISHIN_ENVIRONMENT=development
 ```
 
-Set App B's `.env` with **its own** values:
+Configure App B with its different client and application ID:
 
 ```dotenv
-APP_URL=http://app-b.localhost:8002
+APP_URL=http://app-b.localhost:8122
 SESSION_COOKIE=app_b_session
 SESSION_DOMAIN=null
 
-KOAMISHIN_PORTAL_URL=http://portal.localhost:8000
+KOAMISHIN_PORTAL_URL=http://portal.localhost:8120
 KOAMISHIN_CLIENT_ID=app-b-development-client-id
 KOAMISHIN_CLIENT_SECRET=app-b-development-client-secret
-KOAMISHIN_REDIRECT_URI=http://app-b.localhost:8002/koamishin/callback
-KOAMISHIN_APPLICATION_ID=app-b-numeric-application-id
+KOAMISHIN_REDIRECT_URI=http://app-b.localhost:8122/koamishin/callback
+KOAMISHIN_APPLICATION_ID=app-b-numeric-id
 KOAMISHIN_ENVIRONMENT=development
 ```
 
-The application ID must be the actual numeric ID from the Portal, not the placeholder text. Do not commit either `.env`. Ensure each Laravel application's `APP_KEY` is set, and its session database or other configured session store is ready. If you use a configuration cache, rebuild it after changing `.env`.
+Keep secrets out of version control. Ensure each app has its own `APP_KEY` and a ready session store. Rebuild configuration caches after changing `.env`. The SDK checks the returned application ID and environment before accepting the identity.
 
-## 4. Add the guard and routes to both apps
+## 3. Add registration, login, and callback routes
 
-In **each** application's `config/auth.php`, add this entry inside the existing `guards` array:
+In each app's `config/auth.php`, add this guard inside the existing `guards` array:
 
 ```php
 'koamishin' => [
@@ -127,7 +112,7 @@ In **each** application's `config/auth.php`, add this entry inside the existing 
 ],
 ```
 
-Add these routes to **each** application's `routes/web.php`. Avoid duplicating route names if the consuming app already has login or logout routes.
+Add these routes to each app's `routes/web.php`, avoiding duplicate route names if the app already has authentication routes:
 
 ```php
 use Illuminate\Http\Request;
@@ -135,7 +120,7 @@ use Illuminate\Support\Facades\Route;
 use Koamishin\Auth\Facades\Koamishin;
 
 Route::get('/register', function () {
-    return redirect()->away(rtrim(config('koamishin.portal_url'), '/').'/register');
+    return redirect()->away(Koamishin::getRegistrationUrl('/dashboard'));
 })->name('register');
 
 Route::get('/login', function () {
@@ -170,6 +155,7 @@ Route::get('/dashboard', function (Request $request) {
         'email' => $user->email,
         'application_id' => $user->applicationId,
         'environment' => $user->environment,
+        'public_metadata' => $user->publicMetadata,
     ]);
 })->middleware('auth:koamishin');
 
@@ -180,22 +166,63 @@ Route::post('/logout', function () {
 })->name('logout');
 ```
 
-The example's `/register` route sends a visitor to the Portal registration page; it does not enroll them or automatically return them to the app. After an administrator enrolls the account, the user returns to the application's `/login`. Submit `/logout` with a CSRF-protected POST form. Local app logout clears that app's SDK session; it does not sign the user out of the Portal or other apps.
+`getRegistrationUrl()` creates the same session-backed OAuth state and PKCE verifier as login, then adds `screen_hint=signup`. The Portal can therefore display the named application's registration page and resume the original authorization request. A plain redirect to the Portal's generic `/register` page has no originating application context.
 
-## 5. Start the clients and test
+The callback receives an authorization code, then the server exchanges it for tokens and fetches the permitted claims. User data and metadata are not placed in the callback URL. Submit logout through a CSRF-protected POST form; it clears the local app's SDK session without ending the Portal's browser session.
 
-Start each Laravel app in its own terminal:
+## 4. Try signup in App A and login in App B
+
+If using the existing harness, start it with its `start` action. Otherwise run the Portal and clients on the configured ports, each in its own terminal:
 
 ```bash
-# In app-a/
-php artisan serve --host=127.0.0.1 --port=8001 --no-interaction
+# In the Portal checkout, using the intended development database:
+php artisan serve --host=127.0.0.1 --port=8120 --no-interaction
 ```
 
 ```bash
-# In app-b/
-php artisan serve --host=127.0.0.1 --port=8002 --no-interaction
+# In app-a/:
+php artisan serve --host=127.0.0.1 --port=8121 --no-interaction
 ```
 
-In the **test user's** browser profile, open App A's `/login`, sign in to the Portal if prompted, and approve the authorization request. The callback should display the user's ID and App A's application ID on `/dashboard`. Repeat with App B's `/login`: the Portal may reuse its existing browser session, but App B has its own authorization and app session. Both dashboards should show the **same user ID** and different application IDs.
+```bash
+# In app-b/:
+php artisan serve --host=127.0.0.1 --port=8122 --no-interaction
+```
 
-If an app returns 403, check the organization and environment memberships, the application's expected ID, and that the client belongs to the same environment. If the callback fails, check the exact registered URL, the client secret, the hostnames and cookie settings, and the Laravel session store. If registration mail fails, check the Portal's mail configuration. See [Laravel SDK integration](../guides/laravel-sdk.mdx) for session refresh, role checks, metadata, webhooks, and production configuration.
+In the test user's browser profile:
+
+1. Open App A's `/register`. The Portal should show App A's name and development environment on its registration page.
+2. Create a new account and complete the authorization request. With self-service signup enabled, the Portal enrolls the new account in App A's organization and environment and returns the browser to App A's callback and `/dashboard`.
+3. Confirm the user appears in the Portal's central directory and App A's user list. App A's dashboard should show the Portal subject and App A's application ID.
+4. Open App B's `/login` in the same browser profile. The Portal can reuse its existing login session. If the user is not enrolled in App B, self-service signup must also be enabled there; approving App B's consent request adds that membership before returning to App B.
+5. Compare the dashboards: the user ID should match, while separate applications have different application IDs. Each has its own session and metadata.
+
+An active Portal login can avoid another password prompt. Authorization consent and application access remain specific to the requesting app.
+
+## 5. Add custom metadata from a trusted backend
+
+New accounts start with empty application metadata. A trusted service can set values using a management credential bound to the appropriate application environment:
+
+```php
+use Koamishin\Auth\KoamishinManagementClient;
+
+$management = app(KoamishinManagementClient::class);
+$management->updateUserMetadata(
+    $portalUserId,
+    public: ['theme' => 'dark', 'plan' => 'standard'],
+    private: ['internal_customer_id' => 'C-123'],
+);
+```
+
+Provision the credential with `metadata:read` and `metadata:write`; see [application user metadata](../guides/user-metadata.mdx). Each supplied object replaces its entire bucket. The default SDK user scopes include `metadata:public`, so the next authenticated request can read `publicMetadata`. Private metadata remains available only through authorized management access. App A's metadata is not copied into App B's separate application environment.
+
+## Closed signup and troubleshooting
+
+For an environment with self-service signup disabled, an administrator must enroll the account in both the organization and that application environment. The Dashboard's **Import Users** workflow can attach an existing account; verify its email first and disable **Auto-verify** and **Update details** to preserve its existing credentials and roles. A management client with `memberships:write` can enroll an existing organization member by Portal user ID. See the [API reference](../reference/examples.mdx).
+
+- **Registration opens a generic Portal page:** use `getRegistrationUrl()` and retain the Laravel session through the callback.
+- **Signup or joining App B is denied:** check the selected environment's explicit signup policy, memberships, active client, and SDK application/environment configuration.
+- **The callback fails:** check the exact registered host, port and path, the client secret, local hostname resolution, and session storage. Start a fresh flow from the app if its state expires.
+- **Metadata is empty:** write values through the correct environment's management credential and request `metadata:public`. Global user metadata and private metadata are not userinfo claims.
+
+For session refresh, authorization checks, webhooks, and deployment configuration, see [Laravel SDK integration](../guides/laravel-sdk.mdx). The Portal implements OAuth 2.0 with userinfo and does not issue OIDC ID tokens.

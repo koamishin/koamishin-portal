@@ -20,10 +20,13 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TagsInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Components\ToggleButtons;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Resources\Resource;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Tables\Columns\Layout\View;
 use Filament\Tables\Columns\TextColumn;
@@ -80,8 +83,22 @@ class TenantApplicationResource extends Resource
                                 'production' => 'heroicon-o-check-badge',
                             ])
                             ->default('development')
+                            ->live()
+                            ->afterStateUpdated(function (?string $state, Set $set, ?TenantApplication $record): void {
+                                $allowSignups = $record instanceof TenantApplication
+                                    ? $record->environments()->where('environment', $state)->first()?->getSetting('allow_signups', false) === true
+                                    : $state === 'development';
+
+                                $set('allow_signups', $allowSignups);
+                            })
                             ->inline()
                             ->required(),
+
+                        Toggle::make('allow_signups')
+                            ->label('Allow self-service signup')
+                            ->helperText('Allow new and existing Portal users to join this organization and application environment as members during signup or consent. Turn off to require administrator enrollment.')
+                            ->default(fn (Get $get): bool => $get('environment') === 'development')
+                            ->rules(['boolean']),
 
                         TextInput::make('name')
                             ->label('Application Name')

@@ -101,7 +101,7 @@ class TenantApplication extends Model
                 'oauth_client_id' => $env === $this->environment ? $this->oauth_client_id : null,
                 'redirect_uris' => $env === $this->environment ? $this->redirect_uris : [],
                 'settings' => [
-                    'allow_signups' => true,
+                    'allow_signups' => false,
                     'require_email_verification' => $env === 'production',
                     'enforce_mfa' => $env === 'production',
                     'session_lifetime_minutes' => $env === 'production' ? 120 : 1440,
@@ -217,6 +217,7 @@ use Koamishin\Auth\Facades\Koamishin;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+Route::get('/register', fn () => redirect()->away(Koamishin::getRegistrationUrl('/dashboard')))->name('register');
 Route::get('/login', fn () => redirect()->away(Koamishin::getLoginUrl('/dashboard')))->name('login');
 
 Route::get('/koamishin/callback', function (Request $request) {

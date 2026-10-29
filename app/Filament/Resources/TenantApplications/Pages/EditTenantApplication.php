@@ -12,16 +12,30 @@ use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class EditTenantApplication extends EditRecord
 {
     protected static string $resource = TenantApplicationResource::class;
 
     #[\Override]
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $record = $this->getRecord();
+        $data['allow_signups'] = $record instanceof TenantApplication
+            && $record->environments()->where('environment', $record->environment)->first()?->getSetting('allow_signups', false) === true;
+
+        return $data;
+    }
+
+    #[\Override]
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
         /** @var TenantApplication $record */
         app(ApplicationProvisioner::class)->validateRedirects($data['environment'], $data['redirect_uris']);
+        if (! is_bool($data['allow_signups'] ?? null)) {
+            throw ValidationException::withMessages(['allow_signups' => 'Choose whether self-service signup is allowed.']);
+        }
 
         return DB::transaction(function () use ($record, $data): Model {
             $configuration = $record->environments()->where('environment', $data['environment'])->firstOrFail();
@@ -29,7 +43,10 @@ class EditTenantApplication extends EditRecord
             abort_unless($client && ! $client->getAttribute('revoked'), 409, 'The selected environment has no active OAuth client.');
 
             $client->forceFill(['redirect_uris' => $data['redirect_uris']])->save();
-            $configuration->update(['redirect_uris' => $data['redirect_uris']]);
+            $settings = $configuration->settings ?? [];
+            $settings['allow_signups'] = $data['allow_signups'];
+            $configuration->update(['redirect_uris' => $data['redirect_uris'], 'settings' => $settings]);
+            unset($data['allow_signups']);
             $data['oauth_client_id'] = (string) $client->getKey();
             $record->update($data);
 

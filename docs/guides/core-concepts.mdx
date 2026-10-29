@@ -13,11 +13,19 @@ A Portal organization contains applications. Each application has development an
 2. Under **Applications**, create an application. Choose its framework and initial environment, and enter the exact callback URL used by the consuming application. Production callback URLs must use HTTPS.
 3. Save both environments' client IDs and any displayed client secrets immediately. Secrets are shown once; store confidential client secrets on the server. A browser client is public and has no secret.
 4. Edit the other environment before using it: its callback list starts empty. Switching environments selects that environment's client and callbacks; it does not copy users or metadata into it. The dashboard selection is stored on the application record, so administrators changing the same application can change each other's selected context.
-5. Enroll each user in both the organization and the relevant application environment. The Dashboard's **Quick Add User** and **Import Users** actions can attach users to the active application and chosen environment. An account created elsewhere is not automatically enrolled in every application.
+5. Choose the selected environment's **Allow self-service signup** policy. When enabled, contextual signup can enroll a new user and an existing Portal user can join through authorization consent. When disabled, an administrator must enroll users in both the organization and the application environment. The Dashboard's **Quick Add User** and **Import Users** actions support administrator enrollment.
 
 Laravel and Node.js applications receive confidential authorization-code clients. The browser-oriented framework selections receive public authorization-code clients. Both use the authorization-code flow; use PKCE for browser integrations. An OAuth client created separately with `passport:client` is not automatically bound to an application environment and is denied by the scoped authorization flow until provisioned and mapped correctly.
 
 For a Laravel consuming application, continue with [the PHP SDK guide](laravel-sdk.mdx). A generated application snippet is a starting point; use an SDK version containing the features described here and test the entire flow.
+
+## Contextual signup and login
+
+A Laravel client starts signup with `Koamishin::getRegistrationUrl('/dashboard')`. The SDK creates OAuth state and a PKCE verifier in its session and adds `screen_hint=signup` to the authorization request. After validating the client and exact registered callback, the Portal displays the named application and environment on its signup page. Successful registration resumes the same authorization flow and returns an authorization code to the application's callback. Login uses `getLoginUrl()` and the same context checks.
+
+Self-service enrollment requires the environment's `settings.allow_signups` to be the JSON boolean `true`. Missing or false values keep it closed. An existing Portal user who is not enrolled in an open application can approve its consent request to join; merely opening the page does not grant membership. Production and development policies are independent. A direct visit to the generic Portal `/register` page creates a central account without application enrollment or an application return destination.
+
+Separate applications use separate clients and application IDs. They share the same Portal subject for the same person, while memberships and public/private metadata remain scoped to each application environment. Two consumers intentionally using one Portal application share that boundary. Follow the [two-application walkthrough](../getting-started/centralized-auth.mdx) for complete routes and configuration.
 
 ## Authorization and claims
 
@@ -34,7 +42,7 @@ A mapped OAuth client must identify exactly one active application environment. 
 
 `sub`, organization ID, application ID, and environment identify the context. Private metadata and the older global `users.metadata` field are not returned. The Portal's userinfo endpoints are `GET /api/oauth/userinfo` and `GET /api/user`; both now return the scoped claims shape rather than a raw user model. See [application user metadata](user-metadata.mdx) for writing and reading custom values.
 
-These protections apply to the documented OAuth, management API, and webhook flows. They do not create separate databases or automatically scope every administrative feature. The admin panel currently grants global access to `super_admin`; review privileges, all other endpoints, and your deployment before hosting mutually untrusted organizations. A tenant domain is a record and does not provision DNS or TLS. Environment settings for sign-up, MFA, email verification, and session lifetime are not by themselves enforcement guarantees.
+These protections apply to the documented OAuth, management API, and webhook flows. They do not create separate databases or automatically scope every administrative feature. The admin panel currently grants global access to `super_admin`; review privileges, all other endpoints, and your deployment before hosting mutually untrusted organizations. A tenant domain is a record and does not provision DNS or TLS. The signup policy controls contextual self-service enrollment as described above. Stored MFA, email-verification, and session-lifetime settings are not by themselves enforcement guarantees.
 
 The Portal advertises discovery and JWKS endpoints, but does not currently issue OpenID Connect ID tokens or validate OIDC nonces. Treat this integration as OAuth 2.0 with userinfo, not as a complete OIDC provider.
 

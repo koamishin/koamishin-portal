@@ -13,25 +13,42 @@ import AuthBase from '@/layouts/AuthLayout.vue';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-import type { SharedData } from '@/types';
+import type { AppPageProps } from '@/types';
 
-defineProps<{
+const props = defineProps<{
+    application?: {
+        name: string;
+        organization: string;
+        environment: string;
+        allowSignups: boolean;
+    } | null;
+    flow?: string | null;
     status?: string;
     canResetPassword: boolean;
     canRegister: boolean;
 }>();
 
-const page = usePage<SharedData>();
+const page = usePage<AppPageProps>();
 const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
     true) as boolean;
 </script>
 
 <template>
     <AuthBase
-        title="Log in to your account"
-        description="Enter your email and password below to log in"
+        :title="
+            application
+                ? `Sign in to ${application.name}`
+                : 'Log in to your account'
+        "
+        :description="
+            application
+                ? `${application.organization} · ${application.environment}`
+                : 'Enter your email and password below to log in'
+        "
     >
-        <Head title="Log in" />
+        <Head
+            :title="application ? `Sign in to ${application.name}` : 'Log in'"
+        />
 
         <div
             v-if="status"
@@ -53,6 +70,7 @@ const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
             v-slot="{ errors, processing }"
             class="flex flex-col gap-6"
         >
+            <input v-if="flow" type="hidden" name="flow" :value="flow" />
             <div class="grid gap-6">
                 <div class="grid gap-2">
                     <Label for="email">Email address</Label>
@@ -114,10 +132,18 @@ const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
 
             <div
                 class="text-center text-sm text-muted-foreground"
-                v-if="canRegister"
+                v-if="canRegister && (!application || application.allowSignups)"
             >
                 Don't have an account?
-                <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
+                <TextLink
+                    :href="
+                        props.flow
+                            ? register({ query: { flow: props.flow } })
+                            : register()
+                    "
+                    :tabindex="5"
+                    >Sign up</TextLink
+                >
             </div>
         </Form>
 

@@ -10,14 +10,35 @@ import { Spinner } from '@/components/ui/spinner';
 import AuthBase from '@/layouts/AuthLayout.vue';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
+const props = defineProps<{
+    application?: {
+        name: string;
+        organization: string;
+        environment: string;
+        allowSignups: boolean;
+    } | null;
+    flow?: string | null;
+}>();
 </script>
 
 <template>
     <AuthBase
-        title="Create an account"
-        description="Enter your details below to create your account"
+        :title="
+            application
+                ? `Create your ${application.name} account`
+                : 'Create an account'
+        "
+        :description="
+            application
+                ? `${application.organization} · ${application.environment}`
+                : 'Enter your details below to create your account'
+        "
     >
-        <Head title="Register" />
+        <Head
+            :title="
+                application ? `Register for ${application.name}` : 'Register'
+            "
+        />
 
         <div
             v-if="$page.props.errors?.social"
@@ -32,6 +53,7 @@ import { store } from '@/routes/register';
             v-slot="{ errors, processing }"
             class="flex flex-col gap-6"
         >
+            <input v-if="flow" type="hidden" name="flow" :value="flow" />
             <div class="grid gap-6">
                 <div class="grid gap-2">
                     <Label for="name">Name</Label>
@@ -105,7 +127,11 @@ import { store } from '@/routes/register';
             <div class="text-center text-sm text-muted-foreground">
                 Already have an account?
                 <TextLink
-                    :href="login()"
+                    :href="
+                        props.flow
+                            ? login({ query: { flow: props.flow } })
+                            : login()
+                    "
                     class="underline underline-offset-4"
                     :tabindex="6"
                     >Log in</TextLink
