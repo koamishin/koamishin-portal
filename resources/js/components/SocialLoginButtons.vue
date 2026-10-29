@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button';
 import { redirect } from '@/routes/auth/social';
 import type { AppPageProps } from '@/types';
 
-const props = defineProps<{ flow?: string | null }>();
+const props = defineProps<{ flow?: string | null; hosted?: boolean }>();
+const csrfToken =
+    typeof document === 'undefined'
+        ? ''
+        : (document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
+              ?.content ?? '');
 
 type SocialProvider = {
     slug: 'github' | 'google' | 'facebook';
@@ -37,20 +42,51 @@ const providers = computed<SocialProvider[]>(
         </div>
 
         <div class="grid grid-cols-1 gap-2">
-            <a
+            <component
                 v-for="provider in providers"
                 :key="provider.slug"
+                :is="props.hosted && props.flow ? 'form' : 'a'"
+                :action="
+                    props.hosted && props.flow
+                        ? redirect.url(provider.slug)
+                        : undefined
+                "
+                :method="props.hosted && props.flow ? 'post' : undefined"
                 :href="
-                    props.flow
-                        ? redirect.url(provider.slug, {
-                              query: { flow: props.flow },
-                          })
-                        : provider.url
+                    props.hosted
+                        ? undefined
+                        : props.flow
+                          ? redirect.url(provider.slug, {
+                                query: { flow: props.flow },
+                            })
+                          : provider.url
                 "
                 class="block"
                 :data-test="`social-login-${provider.slug}`"
             >
-                <Button type="button" variant="outline" class="w-full">
+                <input
+                    v-if="props.hosted && props.flow"
+                    type="hidden"
+                    name="_token"
+                    :value="csrfToken"
+                />
+                <input
+                    v-if="props.hosted && props.flow"
+                    type="hidden"
+                    name="flow"
+                    :value="props.flow"
+                />
+                <input
+                    v-if="props.hosted && props.flow"
+                    type="hidden"
+                    name="hosted"
+                    value="1"
+                />
+                <Button
+                    :type="props.hosted && props.flow ? 'submit' : 'button'"
+                    variant="outline"
+                    class="w-full"
+                >
                     <template v-if="provider.slug === 'github'">
                         <svg
                             xmlns="http://www.w3.org/2000/svg"
@@ -107,7 +143,7 @@ const providers = computed<SocialProvider[]>(
 
                     Continue with {{ provider.label }}
                 </Button>
-            </a>
+            </component>
         </div>
     </div>
 </template>

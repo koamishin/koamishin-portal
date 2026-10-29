@@ -13,7 +13,7 @@ import AuthLayout from '@/layouts/AuthLayout.vue';
 import { store } from '@/routes/two-factor/login';
 import type { TwoFactorConfigContent } from '@/types';
 
-defineProps<{ flow?: string | null }>();
+defineProps<{ flow?: string | null; hosted?: boolean }>();
 
 const authConfigContent = computed<TwoFactorConfigContent>(() => {
     if (showRecoveryInput.value) {
@@ -55,6 +55,15 @@ const code = ref<string>('');
             <template v-if="!showRecoveryInput">
                 <Form
                     v-bind="store.form()"
+                    :headers="
+                        hosted && flow
+                            ? {
+                                  'X-Koamishin-Flow': flow,
+                                  'X-Koamishin-Hosted': '1',
+                                  'X-Koamishin-Screen': 'two-factor',
+                              }
+                            : {}
+                    "
                     class="space-y-4"
                     reset-on-error
                     @error="code = ''"
@@ -65,6 +74,12 @@ const code = ref<string>('');
                         type="hidden"
                         name="flow"
                         :value="flow"
+                    />
+                    <input
+                        v-if="hosted"
+                        type="hidden"
+                        name="hosted"
+                        value="1"
                     />
                     <input type="hidden" name="code" :value="code" />
                     <div
@@ -108,6 +123,15 @@ const code = ref<string>('');
             <template v-else>
                 <Form
                     v-bind="store.form()"
+                    :headers="
+                        hosted && flow
+                            ? {
+                                  'X-Koamishin-Flow': flow,
+                                  'X-Koamishin-Hosted': '1',
+                                  'X-Koamishin-Screen': 'two-factor',
+                              }
+                            : {}
+                    "
                     class="space-y-4"
                     reset-on-error
                     #default="{ errors, processing, clearErrors }"
@@ -117,6 +141,12 @@ const code = ref<string>('');
                         type="hidden"
                         name="flow"
                         :value="flow"
+                    />
+                    <input
+                        v-if="hosted"
+                        type="hidden"
+                        name="hosted"
+                        value="1"
                     />
                     <Input
                         name="recovery_code"

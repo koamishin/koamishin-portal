@@ -81,14 +81,12 @@ function registrationAuthorizeUrl(Client $client, array $parameters = []): strin
 function registrationFlow(Client $client, bool $signup = true): string
 {
     $response = get(registrationAuthorizeUrl($client, $signup ? ['screen_hint' => 'signup'] : []));
-    $response->assertRedirect();
-    $location = $response->baseResponse->headers->get('Location');
-    expect($location)->toContain($signup ? '/register?flow=' : '/login?flow=');
-    parse_str((string) parse_url((string) $location, PHP_URL_QUERY), $query);
-    $flow = $query['flow'] ?? null;
+    $response->assertOk();
+    expect($response->viewData('screen'))->toBe($signup ? 'register' : 'login');
+    $flow = $response->viewData('flow');
 
     if (! is_string($flow) || $flow === '') {
-        throw new LogicException('The application authentication response did not contain an opaque flow ID.');
+        throw new LogicException('The application authentication response did not contain a transaction.');
     }
 
     return $flow;
@@ -194,6 +192,275 @@ function establishApplicationSso(Client $client, TenantApplicationEnvironment $e
     $consent = get((string) $login->headers->get('Location'))->assertOk();
     registrationAccessToken($client, registrationConsentToken($consent), $flow);
 }
+
+test('hosted registration completes without putting the transaction identifier in a URL', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    [$client, $environment] = registrationTestEnvironment('hosted-signup');
+
+    $start = get(registrationAuthorizeUrl($client, ['screen_hint' => 'signup']))->assertOk();
+    $flow = $start->viewData('flow');
+    expect(is_string($flow) && $flow !== '')->toBeTrue();
+    expect($start->headers->get('Cache-Control'))->toContain('no-store');
+    expect($start->headers->get('Referrer-Policy'))->toBe('no-referrer');
+
+    $page = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'register'])->assertOk();
+    expect(registrationPageProps($page)['application']['name'])->toBe('hosted-signup');
+    expect(registrationPageProps($page)['hosted'])->toBeTrue();
+
+    $registered = post('/register', registrationInput('hosted.signup@example.test') + ['flow' => $flow, 'hosted' => 1])->assertOk();
+    expect($registered->viewData('screen'))->toBe('continue');
+    $user = User::query()->where('email', 'hosted.signup@example.test')->firstOrFail();
+    expect($environment->application->users('development')->whereKey($user->getKey())->exists())->toBeTrue();
+
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect($consent->headers->get('Cache-Control'))->toContain('no-store');
+    expect($consent->headers->get('Referrer-Policy'))->toBe('no-referrer');
+    $approved = post('/oauth/authorize', ['flow' => $flow, 'hosted' => 1, 'auth_token' => registrationConsentToken($consent)])->assertRedirect();
+    $location = $approved->headers->get('Location');
+    expect($location)->toStartWith($client->getAttribute('redirect_uris')[0]);
+    expect(str_contains((string) $location, 'flow='))->toBeFalse();
+});
+
+test('hosted registration refuses a transaction from a different session', function (): void {
+    post('/auth/hosted', ['flow' => str_repeat('x', 40), 'hosted' => 1, 'screen' => 'register'])->assertStatus(419);
+});
+
+test('restoring an authenticated hosted form resumes its application transaction', function (): void {
+    applicationFeatureSettings(['email_verification_required' => true]);
+    Notification::fake();
+    [$client] = registrationTestEnvironment('hosted-restore-authenticated');
+    $flow = registrationFlow($client);
+    post('/register', registrationInput('hosted.restore@example.test') + ['flow' => $flow, 'hosted' => 1])->assertOk();
+
+    foreach (['login', 'register'] as $screen) {
+        $restored = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => $screen])->assertOk();
+        expect($restored->viewData('screen'))->toBe('continue');
+    }
+    $continued = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect($continued->viewData('screen'))->toBe('verify');
+});
+
+test('hosted sign-ins keep parallel users and consent requests isolated', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    [$client] = registrationTestEnvironment('hosted-parallel');
+    $first = User::factory()->create();
+    $second = User::factory()->create();
+    $flowA = registrationFlow($client, signup: false);
+    $flowB = registrationFlow($client, signup: false);
+
+    $restored = get('/auth/hosted', [
+        'X-Koamishin-Flow' => $flowA,
+        'X-Koamishin-Hosted' => '1',
+        'X-Koamishin-Screen' => 'login',
+    ])->assertOk();
+    expect(registrationPageProps($restored)['flow'])->toBe($flowA);
+    post('/login', ['flow' => $flowA, 'hosted' => 1, 'email' => $first->email, 'password' => 'password'], [
+        'X-Koamishin-Flow' => $flowB,
+        'X-Koamishin-Hosted' => '1',
+    ])->assertStatus(419);
+
+    foreach ([[$flowA, $first], [$flowB, $second]] as [$flow, $user]) {
+        $login = post('/login', ['flow' => $flow, 'hosted' => 1, 'email' => $user->email, 'password' => 'password'])->assertOk();
+        expect($login->viewData('screen'))->toBe('continue');
+    }
+
+    $consentA = post('/auth/hosted', ['flow' => $flowA, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    $consentB = post('/auth/hosted', ['flow' => $flowB, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect(registrationPageProps($consentA)['user']['id'])->toBe($first->id)
+        ->and(registrationPageProps($consentB)['user']['id'])->toBe($second->id);
+    post('/oauth/authorize', ['flow' => $flowB, 'hosted' => 1, 'auth_token' => registrationConsentToken($consentA)])->assertStatus(400);
+    post('/oauth/authorize', ['flow' => $flowA, 'hosted' => 1, 'auth_token' => registrationConsentToken($consentA)])->assertRedirect();
+    post('/oauth/authorize', ['flow' => $flowB, 'hosted' => 1, 'auth_token' => registrationConsentToken($consentB)])->assertRedirect();
+    post('/auth/hosted', ['flow' => $flowA, 'hosted' => 1, 'screen' => 'continue'])->assertStatus(419);
+});
+
+test('hosted validation errors stay with the originating application', function (): void {
+    [$clientA] = registrationTestEnvironment('hosted-errors-a');
+    [$clientB] = registrationTestEnvironment('hosted-errors-b');
+    $flowA = registrationFlow($clientA, signup: false);
+    registrationFlow($clientB, signup: false);
+
+    $response = post('/login', [
+        'flow' => $flowA,
+        'hosted' => 1,
+        'email' => 'missing@example.test',
+        'password' => 'incorrect',
+    ], [
+        'X-Inertia' => 'true',
+        'X-Koamishin-Flow' => $flowA,
+        'X-Koamishin-Hosted' => '1',
+        'X-Koamishin-Screen' => 'login',
+    ])->assertOk();
+
+    $response->assertJsonPath('component', 'auth/Login')
+        ->assertJsonPath('props.application.name', 'hosted-errors-a')
+        ->assertJsonStructure(['props' => ['errors' => ['email']]]);
+    expect($response->json('url'))->toBe('/auth/hosted');
+});
+
+test('hosted verification uses a signed application reference without a flow URL', function (): void {
+    applicationFeatureSettings(['email_verification_required' => true]);
+    Notification::fake();
+    [$client] = registrationTestEnvironment('hosted-verification');
+    $flow = registrationFlow($client);
+
+    post('/register', registrationInput('hosted.verify@example.test') + ['flow' => $flow, 'hosted' => 1])->assertOk();
+    $user = User::query()->where('email', 'hosted.verify@example.test')->firstOrFail();
+    $link = Notification::sent($user, VerifyEmail::class)->first()->toMail($user)->actionUrl;
+    expect($link)->not->toContain('flow=')->toContain('client_id=');
+    expect(post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->viewData('screen'))->toBe('verify');
+    get(str_replace('client_id=', 'client_id=invalid', $link))->assertForbidden();
+    $verified = get($link)->assertOk();
+    expect($verified->viewData('screen'))->toBe('continue');
+    expect($user->fresh()->hasVerifiedEmail())->toBeTrue();
+    post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+});
+
+test('application verification policy controls hosted registration independently of the portal default', function (bool $portalRequiresVerification, bool $applicationRequiresVerification): void {
+    applicationFeatureSettings(['email_verification_required' => $portalRequiresVerification]);
+    Notification::fake();
+    [$client] = registrationTestEnvironment('hosted-verification-policy', [
+        'allow_signups' => true,
+        'email_verification_required' => $applicationRequiresVerification,
+    ]);
+    $flow = registrationFlow($client);
+    post('/register', registrationInput('hosted.policy@example.test') + ['flow' => $flow, 'hosted' => 1])->assertOk();
+    $user = User::query()->where('email', 'hosted.policy@example.test')->firstOrFail();
+    $continuation = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+
+    if ($applicationRequiresVerification) {
+        Notification::assertSentToTimes($user, VerifyEmail::class, 1);
+        expect($continuation->viewData('screen'))->toBe('verify');
+    } else {
+        Notification::assertNotSentTo($user, VerifyEmail::class);
+        expect(registrationPageProps($continuation)['user']['id'])->toBe($user->id);
+        post('/oauth/authorize', ['flow' => $flow, 'hosted' => 1, 'auth_token' => registrationConsentToken($continuation)])->assertRedirect();
+    }
+})->with([
+    'application disables portal requirement' => [true, false],
+    'application requires verification when portal default is off' => [false, true],
+]);
+
+test('a pending hosted verification continues when the application disables the requirement', function (): void {
+    applicationFeatureSettings(['email_verification_required' => true]);
+    Notification::fake();
+    [$client, $environment] = registrationTestEnvironment('hosted-verification-toggle');
+    $flow = registrationFlow($client);
+    post('/register', registrationInput('hosted.toggle@example.test') + ['flow' => $flow, 'hosted' => 1])->assertOk();
+    expect(post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->viewData('screen'))->toBe('verify');
+
+    $environment->update(['settings' => ['allow_signups' => true, 'email_verification_required' => false]]);
+    $resumed = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'verify'])->assertOk();
+    expect($resumed->viewData('screen'))->toBe('continue');
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect(registrationPageProps($consent)['user']['email'])->toBe('hosted.toggle@example.test');
+});
+
+test('one application can require verification while another allows the same unverified user', function (): void {
+    applicationFeatureSettings(['email_verification_required' => true]);
+    Notification::fake();
+    [$clientA] = registrationTestEnvironment('hosted-no-verification', [
+        'allow_signups' => true,
+        'email_verification_required' => false,
+    ]);
+    [$clientB] = registrationTestEnvironment('hosted-require-verification', [
+        'allow_signups' => true,
+        'email_verification_required' => true,
+    ]);
+    $user = User::factory()->unverified()->create();
+
+    $flowA = registrationFlow($clientA, signup: false);
+    post('/login', ['flow' => $flowA, 'hosted' => 1, 'email' => $user->email, 'password' => 'password'])->assertOk();
+    $consentA = post('/auth/hosted', ['flow' => $flowA, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    post('/oauth/authorize', ['flow' => $flowA, 'hosted' => 1, 'auth_token' => registrationConsentToken($consentA)])->assertRedirect();
+    Notification::assertNotSentTo($user, VerifyEmail::class);
+    expect($user->fresh()->hasVerifiedEmail())->toBeFalse();
+
+    $flowB = registrationFlow($clientB, signup: false);
+    post('/login', ['flow' => $flowB, 'hosted' => 1, 'email' => $user->email, 'password' => 'password'])->assertOk();
+    $verification = post('/auth/hosted', ['flow' => $flowB, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect($verification->viewData('screen'))->toBe('verify');
+    Notification::assertSentToTimes($user, VerifyEmail::class, 1);
+});
+
+test('enabling application verification after consent was displayed blocks an unverified grant', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    [$client, $environment] = registrationTestEnvironment('hosted-verification-late', [
+        'allow_signups' => true,
+        'email_verification_required' => false,
+    ]);
+    $user = User::factory()->unverified()->create();
+    $flow = registrationFlow($client, signup: false);
+    post('/login', ['flow' => $flow, 'hosted' => 1, 'email' => $user->email, 'password' => 'password'])->assertOk();
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+
+    $environment->update(['settings' => ['allow_signups' => true, 'email_verification_required' => true]]);
+    post('/oauth/authorize', ['flow' => $flow, 'hosted' => 1, 'auth_token' => registrationConsentToken($consent)])->assertForbidden();
+    expect($environment->application->users('development')->whereKey($user->getKey())->exists())->toBeFalse();
+});
+
+test('hosted two factor authentication keeps its application transaction out of the address', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    [$client] = registrationTestEnvironment('hosted-mfa');
+    $user = User::factory()->twoFactorConfirmed()->create([
+        'two_factor_secret' => encrypt('test-secret'),
+        'two_factor_recovery_codes' => encrypt(json_encode(['hosted-recovery'])),
+    ]);
+    $flow = registrationFlow($client, signup: false);
+
+    $challenge = post('/login', ['flow' => $flow, 'hosted' => 1, 'email' => $user->email, 'password' => 'password'])->assertOk();
+    expect($challenge->viewData('screen'))->toBe('two-factor');
+    $page = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'two-factor'])->assertOk();
+    expect(registrationPageProps($page)['hosted'])->toBeTrue();
+    post('/two-factor-challenge', ['flow' => $flow, 'hosted' => 1, 'recovery_code' => 'invalid'])->assertSessionHasErrors();
+    $complete = post('/two-factor-challenge', ['flow' => $flow, 'hosted' => 1, 'recovery_code' => 'hosted-recovery'])->assertOk();
+    expect($complete->viewData('screen'))->toBe('continue');
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect(registrationPageProps($consent)['user']['id'])->toBe($user->id);
+});
+
+test('hosted social login returns through the original application transaction', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    enableApplicationSocialLogin();
+    [$client] = registrationTestEnvironment('hosted-social');
+    $user = User::factory()->create();
+    $user->socialAccounts()->create(['provider' => 'github', 'provider_id' => 'hosted-provider', 'connection_scope' => 'portal']);
+    $flow = registrationFlow($client, signup: false);
+
+    $redirect = post('/auth/github/redirect', ['flow' => $flow, 'hosted' => 1])->assertRedirect();
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $query);
+    Socialite::fake('github', Laravel\Socialite\Two\User::fake(['id' => 'hosted-provider', 'email' => $user->email]));
+    $callback = get('/auth/github/callback?state='.$query['state'].'&code=test')->assertOk();
+    expect($callback->viewData('screen'))->toBe('continue');
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
+    expect(registrationPageProps($consent)['user']['id'])->toBe($user->id);
+});
+
+test('hosted social failures return to the originating application', function (): void {
+    enableApplicationSocialLogin();
+    [$clientA] = registrationTestEnvironment('hosted-social-error-a', [
+        'allow_signups' => true,
+        'social_providers' => ['google' => ['mode' => 'disabled']],
+    ]);
+    [$clientB] = registrationTestEnvironment('hosted-social-error-b');
+    $flowA = registrationFlow($clientA, signup: false);
+    registrationFlow($clientB, signup: false);
+
+    $transition = post('/auth/google/redirect', ['flow' => $flowA, 'hosted' => 1])->assertOk()->assertSessionHasErrors('social');
+    expect($transition->viewData('flow'))->toBe($flowA);
+    expect($transition->viewData('screen'))->toBe('login');
+    $page = post('/auth/hosted', ['flow' => $flowA, 'hosted' => 1, 'screen' => 'login'])->assertOk();
+    expect(registrationPageProps($page)['application']['name'])->toBe('hosted-social-error-a');
+    expect(((array) registrationPageProps($page)['errors'])['social'])->toContain('not configured');
+});
+
+test('hosted passkey options accept a session-bound header instead of a flow URL', function (): void {
+    [$client] = registrationTestEnvironment('hosted-passkey');
+    $flow = registrationFlow($client, signup: false);
+    $options = get('/passkeys/login/options', ['X-Koamishin-Flow' => $flow, 'X-Koamishin-Hosted' => '1'])->assertOk();
+    expect($options->json('options.challenge'))->toBeString();
+    get('/passkeys/login/options', ['X-Koamishin-Flow' => str_repeat('z', 40), 'X-Koamishin-Hosted' => '1'])->assertStatus(419);
+});
 
 test('application login uses its own appearance and feature policies', function (): void {
     applicationFeatureSettings(['email_verification_required' => false]);
@@ -301,18 +568,18 @@ test('opted-in applications share sign-in only within their organization and env
     $user = User::factory()->create();
     establishApplicationSso($clientA, $environmentA, $user);
 
-    $redirect = get(registrationAuthorizeUrl($clientB))->assertRedirect();
-    expect($redirect->headers->get('Location'))->toContain('/oauth/authorize?');
-    $consent = get((string) $redirect->headers->get('Location'))->assertOk();
+    $transition = get(registrationAuthorizeUrl($clientB))->assertOk();
+    expect($transition->viewData('screen'))->toBe('continue');
+    $flow = $transition->viewData('flow');
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
     expect(registrationPageProps($consent)['user']['id'])->toBe($user->id);
     expect($environmentB->application->users('development')->whereKey($user)->exists())->toBeFalse();
-    expect(get(registrationAuthorizeUrl($clientOther))->headers->get('Location'))->toContain('/login?flow=');
-    expect(get(registrationAuthorizeUrl($clientB, ['prompt' => 'login']))->headers->get('Location'))->toContain('/login?flow=');
-    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $parameters);
-    registrationAccessToken($clientB, registrationConsentToken($consent), $parameters['flow']);
+    expect(get(registrationAuthorizeUrl($clientOther))->viewData('screen'))->toBe('login');
+    expect(get(registrationAuthorizeUrl($clientB, ['prompt' => 'login']))->viewData('screen'))->toBe('login');
+    registrationAccessToken($clientB, registrationConsentToken($consent), $flow);
 
-    $silent = get(registrationAuthorizeUrl($clientB, ['prompt' => 'none']))->assertRedirect();
-    $completed = get((string) $silent->headers->get('Location'))->assertRedirect();
+    $silent = get(registrationAuthorizeUrl($clientB, ['prompt' => 'none']))->assertOk();
+    $completed = post('/auth/hosted', ['flow' => $silent->viewData('flow'), 'hosted' => 1, 'screen' => 'continue'])->assertRedirect();
     expect($completed->headers->get('Location'))->toStartWith($clientB->getAttribute('redirect_uris')[0])->toContain('code=');
 });
 
@@ -323,7 +590,7 @@ test('single sign-on never crosses application environments', function (): void 
     $environmentB->update(['environment' => 'production']);
     establishApplicationSso($clientA, $environmentA, User::factory()->create());
 
-    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/login?flow=');
+    expect(get(registrationAuthorizeUrl($clientB))->viewData('screen'))->toBe('login');
 });
 
 test('an SSO source disabled after the consent page cannot authorize the target application', function (): void {
@@ -332,12 +599,12 @@ test('an SSO source disabled after the consent page cannot authorize the target 
     $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
     $user = User::factory()->create();
     establishApplicationSso($clientA, $environmentA, $user);
-    $redirect = get(registrationAuthorizeUrl($clientB))->assertRedirect();
-    $consent = get((string) $redirect->headers->get('Location'))->assertOk();
-    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $parameters);
+    $transition = get(registrationAuthorizeUrl($clientB))->assertOk();
+    $flow = $transition->viewData('flow');
+    $consent = post('/auth/hosted', ['flow' => $flow, 'hosted' => 1, 'screen' => 'continue'])->assertOk();
 
     $environmentA->update(['settings' => ['allow_signups' => true, 'sso_enabled' => false]]);
-    post('/oauth/authorize', ['flow' => $parameters['flow'], 'auth_token' => registrationConsentToken($consent)])->assertForbidden();
+    post('/oauth/authorize', ['flow' => $flow, 'auth_token' => registrationConsentToken($consent)])->assertForbidden();
     expect($environmentB->application->users('development')->whereKey($user)->exists())->toBeFalse();
 });
 
@@ -358,7 +625,7 @@ test('single sign-on for an MFA user is established after the two-factor challen
     $consent = get((string) $challenge->headers->get('Location'))->assertOk();
     registrationAccessToken($clientA, registrationConsentToken($consent), $flow);
 
-    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/oauth/authorize?');
+    expect(get(registrationAuthorizeUrl($clientB))->viewData('screen'))->toBe('continue');
 });
 
 test('single sign-on is rejected when either application opts out or the source session expires', function (string $reason): void {
@@ -377,7 +644,7 @@ test('single sign-on is rejected when either application opts out or the source 
         travel(9)->hours();
     }
 
-    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/login?flow=');
+    expect(get(registrationAuthorizeUrl($clientB))->viewData('screen'))->toBe('login');
 })->with(['source', 'target', 'password', 'expiry']);
 
 test('application registration displays its context and resumes OAuth after enrolling the new user', function (): void {
@@ -866,9 +1133,8 @@ test('prompt login does not destroy the portal session or the application flow',
     $administrator = User::factory()->create();
     $user = User::factory()->create();
     actingAs($administrator, 'web');
-    $start = get(registrationAuthorizeUrl($client, ['prompt' => 'login']))->assertRedirect();
-    parse_str((string) parse_url((string) $start->headers->get('Location'), PHP_URL_QUERY), $query);
-    $flow = $query['flow'];
+    $start = get(registrationAuthorizeUrl($client, ['prompt' => 'login']))->assertOk();
+    $flow = $start->viewData('flow');
 
     $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
     get((string) $login->headers->get('Location'))->assertOk();

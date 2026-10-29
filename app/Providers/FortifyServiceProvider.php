@@ -67,12 +67,16 @@ class FortifyServiceProvider extends ServiceProvider
         $this->configureRateLimiting();
         $this->configureAuthentication();
         VerifyEmail::createUrlUsing(function (User $user): string {
-            $flow = app(ApplicationAuthentication::class)->flowId(request());
+            $authentication = app(ApplicationAuthentication::class);
+            $flow = $authentication->flowId(request());
+            $applicationFlow = request()->attributes->get('koamishin.application_flow');
+            $hosted = $authentication->isHosted(request()) && is_array($applicationFlow);
 
             return URL::temporarySignedRoute('verification.verify', now()->addMinutes(config('auth.verification.expire', 60)), array_filter([
                 'id' => $user->getKey(),
                 'hash' => sha1($user->getEmailForVerification()),
-                'flow' => $flow,
+                'flow' => $hosted ? null : $flow,
+                'client_id' => $hosted ? $applicationFlow['client_id'] : null,
             ], fn ($value): bool => $value !== null));
         });
     }
@@ -121,6 +125,7 @@ class FortifyServiceProvider extends ServiceProvider
             'status' => $request->session()->get('status'),
             'application' => app(ApplicationAuthentication::class)->pageContext($request),
             'flow' => app(ApplicationAuthentication::class)->flowId($request),
+            'hosted' => app(ApplicationAuthentication::class)->isHosted($request),
         ]));
 
         Fortify::resetPasswordView(fn (Request $request) => Inertia::render('auth/ResetPassword', [
@@ -136,16 +141,21 @@ class FortifyServiceProvider extends ServiceProvider
         Fortify::verifyEmailView(fn (Request $request) => Inertia::render('auth/VerifyEmail', [
             'status' => $request->session()->get('status'),
             'flow' => app(ApplicationAuthentication::class)->flowId($request),
+            'hosted' => app(ApplicationAuthentication::class)->isHosted($request),
+            'application' => app(ApplicationAuthentication::class)->pageContext($request),
         ]));
 
         Fortify::registerView(fn (Request $request) => Inertia::render('auth/Register', [
             'application' => app(ApplicationAuthentication::class)->pageContext($request),
             'flow' => app(ApplicationAuthentication::class)->flowId($request),
+            'hosted' => app(ApplicationAuthentication::class)->isHosted($request),
             'passwordRules' => Password::defaults()->toPasswordRulesString(),
         ]));
 
         Fortify::twoFactorChallengeView(fn (Request $request) => Inertia::render('auth/TwoFactorChallenge', [
             'flow' => app(ApplicationAuthentication::class)->flowId($request),
+            'hosted' => app(ApplicationAuthentication::class)->isHosted($request),
+            'application' => app(ApplicationAuthentication::class)->pageContext($request),
         ]));
 
         Fortify::confirmPasswordView(fn () => Inertia::render('auth/ConfirmPassword'));

@@ -111,6 +111,7 @@ class AppServiceProvider extends ServiceProvider
                 'authToken' => $parameters['authToken'],
                 'csrfToken' => csrf_token(),
                 'flow' => app(ApplicationAuthentication::class)->flowId(request()),
+                'hosted' => app(ApplicationAuthentication::class)->isHosted(request()),
                 'application' => app(ApplicationAuthentication::class)->pageContext(request()),
                 'joiningApplication' => (bool) request()->attributes->get('koamishin.joining_application', false),
                 'client' => $parameters['client'],

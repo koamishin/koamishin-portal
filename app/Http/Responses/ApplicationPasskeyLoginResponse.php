@@ -14,6 +14,10 @@ class ApplicationPasskeyLoginResponse extends PasskeyLoginResponse
     {
         $flow = $request->attributes->get('koamishin.application_flow');
         if (is_array($flow) && $request->wantsJson()) {
+            if (app(ApplicationAuthentication::class)->isHosted($request)) {
+                return response()->json(['hosted' => true]);
+            }
+
             return response()->json(['redirect' => $flow['authorize_url']]);
         }
 

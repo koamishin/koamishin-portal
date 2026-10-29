@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head, usePage } from '@inertiajs/vue3';
+import { Form, Head, router, usePage } from '@inertiajs/vue3';
 import InputError from '@/components/InputError.vue';
 import SignInWithPasskeyButton from '@/components/SignInWithPasskeyButton.vue';
 import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
@@ -13,6 +13,7 @@ import AuthBase from '@/layouts/AuthLayout.vue';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
+import { store as hostedStore } from '@/routes/hosted';
 import type { AppPageProps } from '@/types';
 
 const props = defineProps<{
@@ -26,6 +27,7 @@ const props = defineProps<{
         loginDescription?: string | null;
     } | null;
     flow?: string | null;
+    hosted?: boolean;
     status?: string;
     canResetPassword: boolean;
     canRegister: boolean;
@@ -73,11 +75,21 @@ const passkeysEnabled = props.application
 
         <Form
             v-bind="store.form()"
+            :headers="
+                hosted && flow
+                    ? {
+                          'X-Koamishin-Flow': flow,
+                          'X-Koamishin-Hosted': '1',
+                          'X-Koamishin-Screen': 'login',
+                      }
+                    : {}
+            "
             :reset-on-success="['password']"
             v-slot="{ errors, processing }"
             class="flex flex-col gap-6"
         >
             <input v-if="flow" type="hidden" name="flow" :value="flow" />
+            <input v-if="hosted" type="hidden" name="hosted" value="1" />
             <div class="grid gap-6">
                 <div class="grid gap-2">
                     <Label for="email">Email address</Label>
@@ -146,7 +158,22 @@ const passkeysEnabled = props.application
                 v-if="canRegister && (!application || application.allowSignups)"
             >
                 Don't have an account?
+                <button
+                    v-if="hosted && flow"
+                    type="button"
+                    class="underline underline-offset-4"
+                    @click="
+                        router.post(hostedStore.url(), {
+                            flow,
+                            screen: 'register',
+                            hosted: 1,
+                        })
+                    "
+                >
+                    Sign up
+                </button>
                 <TextLink
+                    v-else
                     :href="
                         props.flow
                             ? register({ query: { flow: props.flow } })
@@ -158,8 +185,12 @@ const passkeysEnabled = props.application
             </div>
         </Form>
 
-        <SignInWithPasskeyButton v-if="passkeysEnabled" :flow="flow" />
+        <SignInWithPasskeyButton
+            v-if="passkeysEnabled"
+            :flow="flow"
+            :hosted="hosted"
+        />
 
-        <SocialLoginButtons :flow="flow" />
+        <SocialLoginButtons :flow="flow" :hosted="hosted" />
     </AuthBase>
 </template>

@@ -76,8 +76,11 @@ class TenantApplicationEnvironment extends Model
 
     public function requiresEmailVerification(): bool
     {
-        return app(ApplicationFeaturesSettings::class)->email_verification_required
-            || $this->getSetting('email_verification_required', false) === true;
+        $applicationSetting = $this->getSetting('email_verification_required');
+
+        return is_bool($applicationSetting)
+            ? $applicationSetting
+            : app(ApplicationFeaturesSettings::class)->email_verification_required;
     }
 
     public function allowsPasskeys(): bool

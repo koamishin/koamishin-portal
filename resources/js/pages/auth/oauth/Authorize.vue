@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import AuthBase from '@/layouts/AuthLayout.vue';
 import {
@@ -30,6 +31,7 @@ const props = defineProps<{
     authToken: string;
     csrfToken: string;
     flow?: string | null;
+    hosted?: boolean;
     application?: { name: string; environment: string } | null;
     joiningApplication?: boolean;
     request: {
@@ -37,11 +39,17 @@ const props = defineProps<{
     };
 }>();
 
+const submitting = ref(false);
+
 /**
  * Submit a real form so the OAuth redirect to the client application is
  * followed by the browser, not by an XHR request.
  */
 function submit(method: 'POST' | 'DELETE') {
+    if (submitting.value) {
+        return;
+    }
+    submitting.value = true;
     const form = document.createElement('form');
     form.method = 'POST';
     form.action =
@@ -59,6 +67,9 @@ function submit(method: 'POST' | 'DELETE') {
 
     if (props.flow) {
         fields.flow = props.flow;
+    }
+    if (props.hosted) {
+        fields.hosted = '1';
     }
 
     if (method === 'DELETE') {
@@ -140,8 +151,15 @@ function deny() {
             </div>
 
             <div class="flex items-center gap-3 pt-4">
-                <Button class="flex-1" @click="approve"> Authorize </Button>
-                <Button variant="outline" class="flex-1" @click="deny">
+                <Button class="flex-1" :disabled="submitting" @click="approve">
+                    Authorize
+                </Button>
+                <Button
+                    variant="outline"
+                    class="flex-1"
+                    :disabled="submitting"
+                    @click="deny"
+                >
                     Cancel
                 </Button>
             </div>

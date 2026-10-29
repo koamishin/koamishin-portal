@@ -61,7 +61,12 @@ class ApplicationAuthentication
 
     public function resolve(Request $request, ?string $flowId = null): void
     {
-        $id = $flowId ?? $request->input('flow');
+        $header = $request->header('X-Koamishin-Flow');
+        $input = $request->input('flow');
+        if (is_string($header) && $header !== '' && $input !== null) {
+            abort_unless(is_string($input) && hash_equals($header, $input), 419);
+        }
+        $id = $flowId ?? $input ?? (is_string($header) && $header !== '' ? $header : null);
         if ($id === null) {
             return;
         }
@@ -283,6 +288,23 @@ class ApplicationAuthentication
         return isset($this->flows($request)[$id]);
     }
 
+    public function verificationFlow(Request $request, string $clientId, string $userId): ?string
+    {
+        $matches = [];
+        foreach ($this->flows($request) as $id => $flow) {
+            $guardKey = 'login_application_'.$id.'_'.sha1(SessionGuard::class);
+            $guardUser = $request->session()->get($guardKey);
+            if (hash_equals($flow['client_id'], $clientId) && is_scalar($guardUser)
+                && hash_equals((string) $guardUser, $userId)) {
+                $matches[] = $id;
+            }
+        }
+
+        abort_if(count($matches) > 1, 409, 'Multiple sign-ins are waiting for verification. Return to the application and start again.');
+
+        return $matches[0] ?? null;
+    }
+
     public function resume(Request $request): ?Response
     {
         $flow = $request->attributes->get('koamishin.application_flow');
@@ -290,9 +312,46 @@ class ApplicationAuthentication
             return null;
         }
 
+        if ($this->isHosted($request)) {
+            return $this->transition($request, 'continue');
+        }
+
         return $request->header('X-Inertia')
             ? Inertia::location($flow['authorize_url'])
             : redirect()->to($flow['authorize_url']);
+    }
+
+    public function isHosted(Request $request): bool
+    {
+        return $request->attributes->getBoolean('koamishin.hosted')
+            || $request->boolean('hosted')
+            || $request->header('X-Koamishin-Hosted') === '1';
+    }
+
+    public function transition(Request $request, string $screen): Response
+    {
+        $flow = $this->flowId($request);
+        abort_unless($flow !== null, 419, 'This application sign-in has expired. Start again from the application.');
+
+        if ($request->header('X-Inertia')) {
+            $response = Inertia::render('auth/HostedTransition', [
+                'flow' => $flow,
+                'screen' => $screen,
+                'csrfToken' => csrf_token(),
+                'restore' => false,
+            ])->toResponse($request);
+        } else {
+            $response = response()->view('auth-hosted-transition', [
+                'flow' => $flow,
+                'screen' => $screen,
+                'restore' => false,
+            ]);
+        }
+
+        $response->headers->set('Cache-Control', 'no-store, private');
+        $response->headers->set('Referrer-Policy', 'no-referrer');
+
+        return $response;
     }
 
     public function enrollNewUser(Request $request, User $user): void

@@ -50,9 +50,7 @@ class SocialAuthController extends Controller
         $environment = $request->attributes->get('koamishin.application_environment');
         $credentials = $this->socialConnections->credentials($providerEnum, $environment instanceof TenantApplicationEnvironment ? $environment : null);
         if ($credentials === null) {
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors(['social' => 'This social login provider is not configured.']);
+            return $this->socialFailure($request, 'This social login provider is not configured.');
         }
 
         $driver = $this->buildDriver($providerEnum, $credentials);
@@ -71,9 +69,7 @@ class SocialAuthController extends Controller
         $environment = $request->attributes->get('koamishin.application_environment');
         $credentials = $this->socialConnections->credentials($providerEnum, $environment instanceof TenantApplicationEnvironment ? $environment : null);
         if ($credentials === null) {
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors(['social' => 'This social login provider is not configured.']);
+            return $this->socialFailure($request, 'This social login provider is not configured.');
         }
 
         try {
@@ -84,9 +80,7 @@ class SocialAuthController extends Controller
                 'error' => $e->getMessage(),
             ]);
 
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors(['social' => 'Unable to authenticate with '.($providerEnum->label()).'. Please try again.']);
+            return $this->socialFailure($request, 'Unable to authenticate with '.($providerEnum->label()).'. Please try again.');
         }
 
         abort_unless(filled($socialUser->getId()) && filter_var($socialUser->getEmail(), FILTER_VALIDATE_EMAIL), 422, 'The provider did not return an email address.');
@@ -134,20 +128,21 @@ class SocialAuthController extends Controller
         }
 
         if ($user->isBanned()) {
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors([
-                    'social' => $user->ban_reason
-                        ? 'Your account has been suspended: '.$user->ban_reason
-                        : 'Your account has been suspended. Please contact support.',
-                ]);
+            return $this->socialFailure($request, $user->ban_reason
+                ? 'Your account has been suspended: '.$user->ban_reason
+                : 'Your account has been suspended. Please contact support.');
         }
 
         if (Features::enabled(Features::twoFactorAuthentication()) && $user->two_factor_secret && $user->two_factor_confirmed_at) {
             $request->session()->put(['login.id' => $user->getKey(), 'login.remember' => false]);
             TwoFactorAuthenticationChallenged::dispatch($user);
 
-            return redirect()->route('two-factor.login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]));
+            $authentication = app(ApplicationAuthentication::class);
+            if ($authentication->isHosted($request) && $authentication->flowId($request) !== null) {
+                return $authentication->transition($request, 'two-factor');
+            }
+
+            return redirect()->route('two-factor.login', array_filter(['flow' => $authentication->flowId($request)]));
         }
 
         $guard = $request->attributes->get('koamishin.application_guard');
@@ -162,6 +157,19 @@ class SocialAuthController extends Controller
         $request->session()->regenerate();
 
         return redirect()->intended(route('dashboard', absolute: false));
+    }
+
+    private function socialFailure(Request $request, string $message): RedirectResponse|Response
+    {
+        $authentication = app(ApplicationAuthentication::class);
+        if ($authentication->isHosted($request) && $authentication->flowId($request) !== null) {
+            redirect()->route('hosted.restore')->withErrors(['social' => $message]);
+
+            return $authentication->transition($request, 'login');
+        }
+
+        return redirect()->route('login', array_filter(['flow' => $authentication->flowId($request)]))
+            ->withErrors(['social' => $message]);
     }
 
     /** @param array{client_id: string, client_secret: string, redirect: string, scope: string} $credentials */

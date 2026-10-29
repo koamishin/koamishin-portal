@@ -55,9 +55,8 @@ function oauthApplicationLogin(Client $client, User $user, string $scope = 'open
         'state' => 'flow123',
         'scope' => $scope,
     ]);
-    $response = get($url)->assertRedirect();
-    parse_str((string) parse_url((string) $response->headers->get('Location'), PHP_URL_QUERY), $query);
-    $flow = $query['flow'];
+    $response = get($url)->assertOk();
+    $flow = $response->viewData('flow');
     $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
 
     return [$flow, (string) $login->headers->get('Location')];

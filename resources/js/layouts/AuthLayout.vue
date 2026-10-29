@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, watchEffect } from 'vue';
 import { usePage } from '@inertiajs/vue3';
 import AuthSimpleLayout from '@/layouts/auth/AuthSimpleLayout.vue';
 import AuthCardLayout from '@/layouts/auth/AuthCardLayout.vue';
@@ -11,6 +11,32 @@ defineProps<{
 }>();
 
 const page = usePage();
+onMounted(() => {
+    watchEffect(() => {
+        const screens: Record<string, string> = {
+            'auth/Login': 'login',
+            'auth/Register': 'register',
+            'auth/TwoFactorChallenge': 'two-factor',
+            'auth/VerifyEmail': 'verify',
+            'auth/oauth/Authorize': 'continue',
+        };
+        const screen = screens[page.component];
+        if (
+            page.props.hosted &&
+            typeof page.props.flow === 'string' &&
+            screen
+        ) {
+            try {
+                sessionStorage.setItem(
+                    'koamishin.hosted',
+                    JSON.stringify({ flow: page.props.flow, screen }),
+                );
+            } catch {
+                // The current form can still be submitted without session storage.
+            }
+        }
+    });
+});
 const application = computed(
     () =>
         page.props.application as {

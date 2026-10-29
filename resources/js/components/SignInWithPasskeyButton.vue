@@ -6,8 +6,9 @@ import { onMounted, ref } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { loginOptions, login } from '@/routes/passkey';
+import { store as hostedStore } from '@/routes/hosted';
 
-const props = defineProps<{ flow?: string | null }>();
+const props = defineProps<{ flow?: string | null; hosted?: boolean }>();
 
 const supported = ref(true);
 const loading = ref(false);
@@ -26,8 +27,16 @@ const signIn = async () => {
     error.value = null;
 
     try {
+        Passkeys.configure({
+            fetch: {
+                headers: {
+                    'X-Koamishin-Flow': props.hosted ? (props.flow ?? '') : '',
+                    'X-Koamishin-Hosted': props.hosted ? '1' : '',
+                },
+            },
+        });
         const result = await Passkeys.verify(
-            props.flow
+            props.flow && !props.hosted
                 ? {
                       routes: {
                           options: loginOptions.url({
@@ -38,6 +47,34 @@ const signIn = async () => {
                   }
                 : {},
         );
+        if (
+            props.hosted &&
+            props.flow &&
+            (result as { hosted?: boolean } | null)?.hosted
+        ) {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = hostedStore.url();
+            const csrf =
+                document.querySelector<HTMLMetaElement>(
+                    'meta[name="csrf-token"]',
+                )?.content ?? '';
+            for (const [name, value] of Object.entries({
+                _token: csrf,
+                flow: props.flow,
+                hosted: '1',
+                screen: 'continue',
+            })) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = name;
+                input.value = value;
+                form.appendChild(input);
+            }
+            document.body.appendChild(form);
+            form.submit();
+            return;
+        }
         const redirect = (result as { redirect?: string } | null)?.redirect;
 
         if (redirect) {

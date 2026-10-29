@@ -382,9 +382,8 @@ test('revoking an OAuth grant rejects its real refresh token', function (): void
         'state' => 'testing',
         'code_challenge' => $challenge,
         'code_challenge_method' => 'S256',
-    ]))->assertRedirect();
-    parse_str((string) parse_url((string) $start->headers->get('Location'), PHP_URL_QUERY), $loginQuery);
-    $flow = $loginQuery['flow'];
+    ]))->assertOk();
+    $flow = $start->viewData('flow');
     $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
     $authorization = get((string) $login->headers->get('Location'))->assertOk();
     $approval = post('/oauth/authorize', [

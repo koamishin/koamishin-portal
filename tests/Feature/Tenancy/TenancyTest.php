@@ -10,6 +10,7 @@ use App\Models\Tenant;
 use App\Models\TenantApplication;
 use App\Models\User;
 use App\Services\OAuth\ApplicationProvisioner;
+use App\Settings\ApplicationFeaturesSettings;
 use Filament\Facades\Filament;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
@@ -193,7 +194,7 @@ test('application settings keep provider secrets encrypted and scoped to the sel
     Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
         ->set('data.login_title', 'Welcome to Billing')
         ->set('data.auth_layout', 'card')
-        ->set('data.email_verification_required', true)
+        ->set('data.email_verification_policy', 'required')
         ->set('data.passkeys_enabled', false)
         ->set('data.sso_enabled', true)
         ->set('data.social_github_mode', 'custom')
@@ -225,6 +226,55 @@ test('application settings keep provider secrets encrypted and scoped to the sel
         ->call('save', false)
         ->assertHasErrors();
     expect($development->fresh()->settings['social_providers']['github']['client_id'])->toBe('billing-client');
+});
+
+test('application email verification can be required, disabled, or inherited per environment', function (): void {
+    Role::query()->firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+    $admin = User::factory()->create();
+    $admin->assignRole('super_admin');
+    $tenant = Tenant::query()->create(['name' => 'Verification policy org', 'slug' => 'verification-policy-org']);
+    $application = app(ApplicationProvisioner::class)->create($tenant, [
+        'name' => 'Verification policy app', 'framework' => 'laravel', 'environment' => 'development',
+        'redirect_uris' => ['http://localhost:8000/callback'],
+    ]);
+    $development = $application->environments()->where('environment', 'development')->sole();
+    $production = $application->environments()->where('environment', 'production')->sole();
+    $portalSettings = app(ApplicationFeaturesSettings::class);
+    $portalSettings->email_verification_required = true;
+    app()->instance(ApplicationFeaturesSettings::class, $portalSettings);
+    actingAs($admin);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($tenant);
+    Filament::bootCurrentPanel();
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSet('data.email_verification_policy', 'inherit')
+        ->set('data.email_verification_policy', 'disabled')
+        ->call('save', false)
+        ->assertHasNoErrors();
+
+    expect($development->fresh()->getSetting('email_verification_required'))->toBeFalse();
+    expect($development->fresh()->requiresEmailVerification())->toBeFalse();
+    expect($production->fresh()->requiresEmailVerification())->toBeTrue();
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSet('data.email_verification_policy', 'disabled')
+        ->set('data.environment', 'production')
+        ->assertSet('data.email_verification_policy', 'inherit');
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSet('data.email_verification_policy', 'disabled')
+        ->set('data.email_verification_policy', 'required')
+        ->call('save', false)
+        ->assertHasNoErrors();
+    expect($development->fresh()->getSetting('email_verification_required'))->toBeTrue();
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSet('data.email_verification_policy', 'required')
+        ->set('data.email_verification_policy', 'inherit')
+        ->call('save', false)
+        ->assertHasNoErrors();
+    expect(array_key_exists('email_verification_required', $development->fresh()->settings ?? []))->toBeFalse();
+    expect($development->fresh()->requiresEmailVerification())->toBeTrue();
 });
 
 test('production provisioning refuses an insecure callback without creating a client', function (): void {

@@ -90,6 +90,10 @@ return [
 
     'domain' => null,
 
+    // Redirect direct registration from this optional origin to the configured entry point.
+    'registration_alias_origin' => env('PORTAL_REGISTRATION_ALIAS_ORIGIN'),
+    'registration_alias_target_url' => env('PORTAL_REGISTRATION_ALIAS_TARGET_URL'),
+
     /*
     |--------------------------------------------------------------------------
     | Fortify Routes Middleware

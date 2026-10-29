@@ -155,12 +155,17 @@ class TenantApplicationResource extends Resource
                         ])->default('inherit')->required(),
                     ])->columns(2),
                 Section::make('Application authentication features')
-                    ->description('These settings apply only to the selected environment. Portal-wide security requirements still apply.')
+                    ->description('These settings apply only to the selected environment. Portal-wide feature availability still applies.')
                     ->visible(fn (?TenantApplication $record): bool => $record instanceof TenantApplication)
                     ->components([
-                        Toggle::make('email_verification_required')->label('Require verified email')
-                            ->helperText('This adds a requirement for this application; a Portal-wide requirement cannot be disabled here.')
-                            ->default(false),
+                        Select::make('email_verification_policy')->label('Email verification')
+                            ->options([
+                                'inherit' => 'Use Portal default',
+                                'required' => 'Required for this application',
+                                'disabled' => 'Not required for this application',
+                            ])
+                            ->helperText('Choose whether this application requires verified email, or use the Portal default.')
+                            ->default('inherit')->required(),
                         Toggle::make('passkeys_enabled')->label('Allow passkey sign-in')->default(true),
                         Toggle::make('sso_enabled')->label('Allow single sign-on')->default(false)
                             ->helperText('Share sign-in with other opted-in applications in this organization and environment for up to eight hours. Each application still checks membership and consent.'),
@@ -177,8 +182,12 @@ class TenantApplicationResource extends Resource
     {
         $config = $application?->environments()->where('environment', $environment)->first();
         $values = [
-            'allow_signups' => $application instanceof \App\Models\TenantApplication ? $config?->getSetting('allow_signups', false) === true : $environment === 'development',
-            'email_verification_required' => $config?->getSetting('email_verification_required', false) === true,
+            'allow_signups' => $application instanceof TenantApplication ? $config?->getSetting('allow_signups', false) === true : $environment === 'development',
+            'email_verification_policy' => match ($config?->getSetting('email_verification_required')) {
+                true => 'required',
+                false => 'disabled',
+                default => 'inherit',
+            },
             'passkeys_enabled' => $config?->getSetting('passkeys_enabled', true) === true,
             'sso_enabled' => $config?->getSetting('sso_enabled', false) === true,
             'login_title' => $config?->getSetting('login_title'),

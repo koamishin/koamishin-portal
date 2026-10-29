@@ -26,6 +26,11 @@ export interface TokenResponse {
     id_token?: string;
 }
 
+interface AuthenticationTransaction {
+    verifier: string;
+    createdAt: number;
+}
+
 export class KoamishinClient {
     protected portalUrl: string;
     protected clientId: string;
@@ -57,8 +62,14 @@ export class KoamishinClient {
         const { verifier, challenge } = await generatePkce();
         const state = generateState();
 
-        sessionStorage.setItem(this.storageKey('code_verifier'), verifier);
-        sessionStorage.setItem(this.storageKey('oauth_state'), state);
+        const transactions = Object.fromEntries(
+            Object.entries(this.pendingTransactions()).slice(-9),
+        );
+        transactions[state] = { verifier, createdAt: Date.now() };
+        sessionStorage.setItem(
+            this.storageKey('oauth_transactions'),
+            JSON.stringify(transactions),
+        );
 
         const params = new URLSearchParams({
             client_id: this.clientId,
@@ -94,19 +105,16 @@ export class KoamishinClient {
             );
         }
 
-        const savedState = sessionStorage.getItem(
-            this.storageKey('oauth_state'),
-        );
-        if (!savedState || savedState !== state) {
+        const transactions = this.pendingTransactions();
+        const transaction = transactions[state];
+        if (!transaction) {
             throw new Error('OAuth state mismatch. Request may be untrusted.');
         }
-
-        const verifier = sessionStorage.getItem(
-            this.storageKey('code_verifier'),
+        delete transactions[state];
+        sessionStorage.setItem(
+            this.storageKey('oauth_transactions'),
+            JSON.stringify(transactions),
         );
-        if (!verifier) {
-            throw new Error('PKCE code verifier not found in session storage.');
-        }
 
         const tokenResponse = await fetch(`${this.portalUrl}/oauth/token`, {
             method: 'POST',
@@ -117,7 +125,7 @@ export class KoamishinClient {
                 grant_type: 'authorization_code',
                 client_id: this.clientId,
                 redirect_uri: this.redirectUri,
-                code_verifier: verifier,
+                code_verifier: transaction.verifier,
                 code,
             }),
         });
@@ -129,8 +137,6 @@ export class KoamishinClient {
 
         const tokens: TokenResponse = await tokenResponse.json();
 
-        sessionStorage.removeItem(this.storageKey('code_verifier'));
-        sessionStorage.removeItem(this.storageKey('oauth_state'));
         sessionStorage.setItem(
             this.storageKey('access_token'),
             tokens.access_token,
@@ -223,11 +229,48 @@ export class KoamishinClient {
             sessionStorage.removeItem(this.storageKey('refresh_token'));
             sessionStorage.removeItem(this.storageKey('oauth_state'));
             sessionStorage.removeItem(this.storageKey('code_verifier'));
+            sessionStorage.removeItem(this.storageKey('oauth_transactions'));
         }
     }
 
     protected storageKey(key: string): string {
         return `koamishin:${encodeURIComponent(this.portalUrl)}:${encodeURIComponent(this.clientId)}:${key}`;
+    }
+
+    protected pendingTransactions(): Record<string, AuthenticationTransaction> {
+        let stored: unknown;
+        try {
+            stored = JSON.parse(
+                sessionStorage.getItem(this.storageKey('oauth_transactions')) ??
+                    '{}',
+            );
+        } catch {
+            return {};
+        }
+        if (!stored || typeof stored !== 'object' || Array.isArray(stored)) {
+            return {};
+        }
+
+        const now = Date.now();
+        return Object.fromEntries(
+            Object.entries(stored).filter(([state, value]) => {
+                if (
+                    !/^[A-Za-z0-9_-]{22}$/.test(state) ||
+                    !value ||
+                    typeof value !== 'object'
+                ) {
+                    return false;
+                }
+                const transaction = value as Partial<AuthenticationTransaction>;
+                return (
+                    typeof transaction.verifier === 'string' &&
+                    /^[A-Za-z0-9_-]{43}$/.test(transaction.verifier) &&
+                    typeof transaction.createdAt === 'number' &&
+                    transaction.createdAt >= now - 600_000 &&
+                    transaction.createdAt <= now
+                );
+            }),
+        ) as Record<string, AuthenticationTransaction>;
     }
 }
 

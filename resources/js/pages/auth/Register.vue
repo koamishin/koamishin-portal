@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
+import { Form, Head, router } from '@inertiajs/vue3';
 import InputError from '@/components/InputError.vue';
 import SocialLoginButtons from '@/components/SocialLoginButtons.vue';
 import TextLink from '@/components/TextLink.vue';
@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import AuthBase from '@/layouts/AuthLayout.vue';
 import { login } from '@/routes';
 import { store } from '@/routes/register';
+import { store as hostedStore } from '@/routes/hosted';
 const props = defineProps<{
     application?: {
         name: string;
@@ -18,6 +19,7 @@ const props = defineProps<{
         allowSignups: boolean;
     } | null;
     flow?: string | null;
+    hosted?: boolean;
 }>();
 </script>
 
@@ -49,11 +51,21 @@ const props = defineProps<{
 
         <Form
             v-bind="store.form()"
+            :headers="
+                hosted && flow
+                    ? {
+                          'X-Koamishin-Flow': flow,
+                          'X-Koamishin-Hosted': '1',
+                          'X-Koamishin-Screen': 'register',
+                      }
+                    : {}
+            "
             :reset-on-success="['password', 'password_confirmation']"
             v-slot="{ errors, processing }"
             class="flex flex-col gap-6"
         >
             <input v-if="flow" type="hidden" name="flow" :value="flow" />
+            <input v-if="hosted" type="hidden" name="hosted" value="1" />
             <div class="grid gap-6">
                 <div class="grid gap-2">
                     <Label for="name">Name</Label>
@@ -126,7 +138,22 @@ const props = defineProps<{
 
             <div class="text-center text-sm text-muted-foreground">
                 Already have an account?
+                <button
+                    v-if="hosted && flow"
+                    type="button"
+                    class="underline underline-offset-4"
+                    @click="
+                        router.post(hostedStore.url(), {
+                            flow,
+                            screen: 'login',
+                            hosted: 1,
+                        })
+                    "
+                >
+                    Log in
+                </button>
                 <TextLink
+                    v-else
                     :href="
                         props.flow
                             ? login({ query: { flow: props.flow } })
@@ -139,6 +166,6 @@ const props = defineProps<{
             </div>
         </Form>
 
-        <SocialLoginButtons :flow="flow" />
+        <SocialLoginButtons :flow="flow" :hosted="hosted" />
     </AuthBase>
 </template>

@@ -2,6 +2,7 @@
 
 use App\Enums\SocialLoginProvider;
 use App\Filament\Resources\TenantApplications\TenantApplicationResource;
+use App\Http\Controllers\Auth\HostedAuthenticationController;
 use App\Http\Controllers\Auth\OpenIdConnectController;
 use App\Http\Controllers\Auth\SocialAuthController;
 use App\Http\Controllers\ImpersonateController;
@@ -39,13 +40,16 @@ Route::middleware('web')->group(function (): void {
 
 $socialProviders = implode('|', SocialLoginProvider::values());
 
-Route::get('auth/{provider}/redirect', [SocialAuthController::class, 'redirect'])
+Route::match(['get', 'post'], 'auth/{provider}/redirect', [SocialAuthController::class, 'redirect'])
     ->where('provider', $socialProviders)
     ->name('auth.social.redirect');
 
 Route::get('auth/{provider}/callback', [SocialAuthController::class, 'callback'])
     ->where('provider', $socialProviders)
     ->name('auth.social.callback');
+
+Route::get('auth/hosted', [HostedAuthenticationController::class, 'restore'])->name('hosted.restore');
+Route::post('auth/hosted', HostedAuthenticationController::class)->name('hosted.store');
 
 Route::get('.well-known/openid-configuration', [OpenIdConnectController::class, 'discovery'])->name('openid.discovery');
 Route::get('oauth/jwks', [OpenIdConnectController::class, 'jwks'])->name('oauth.jwks');
