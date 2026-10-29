@@ -11,6 +11,13 @@ defineProps<{
 }>();
 
 const page = usePage();
+const application = computed(
+    () =>
+        page.props.application as {
+            logoUrl?: string | null;
+            name?: string;
+        } | null,
+);
 
 const layoutComponent = computed(() => {
     const layout = page.props.authLayout ?? 'simple';
@@ -27,7 +34,13 @@ const layoutComponent = computed(() => {
 </script>
 
 <template>
-    <component :is="layoutComponent" :title="title" :description="description">
+    <component
+        :is="layoutComponent"
+        :title="title"
+        :description="description"
+        :logo-url="application?.logoUrl"
+        :application-name="application?.name"
+    >
         <slot />
     </component>
 </template>

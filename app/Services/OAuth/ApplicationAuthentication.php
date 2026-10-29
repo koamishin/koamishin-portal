@@ -22,6 +22,8 @@ class ApplicationAuthentication
 
     private const MAX_AGE = 600;
 
+    private const SSO_MAX_AGE = 28800;
+
     public function __construct(private readonly ApplicationAccess $access) {}
 
     /** @return array{id: string, client_id: string, authorize_url: string, created_at: int} */
@@ -158,7 +160,7 @@ class ApplicationAuthentication
         $request->attributes->set('koamishin.application_finished', true);
     }
 
-    /** @return array{id: string, name: string, organization: string, environment: string, allowSignups: bool}|null */
+    /** @return array<string, mixed>|null */
     public function pageContext(Request $request): ?array
     {
         $environment = $request->attributes->get('koamishin.application_environment');
@@ -172,7 +174,103 @@ class ApplicationAuthentication
             'organization' => $environment->application->tenant->name,
             'environment' => $environment->environment,
             'allowSignups' => $this->allowsSignups($environment),
+            'passkeysEnabled' => $environment->allowsPasskeys(),
+            'loginTitle' => $environment->getSetting('login_title'),
+            'loginDescription' => $environment->getSetting('login_description'),
+            'logoUrl' => $environment->getSetting('login_logo_url'),
         ];
+    }
+
+    public function reuseSingleSignOn(Request $request, TenantApplicationEnvironment $target): bool
+    {
+        if (! $target->allowsSingleSignOn()) {
+            return false;
+        }
+
+        $key = 'koamishin.sso.'.$target->application->tenant_id.'.'.$target->environment;
+        $session = $request->session()->get($key);
+        $user = is_array($session) ? $this->validatedSsoUser($session, $target) : null;
+        if (! $user instanceof User) {
+            $request->session()->forget($key);
+
+            return false;
+        }
+
+        $guard = $request->attributes->get('koamishin.application_guard');
+        if (! $guard instanceof SessionGuard) {
+            return false;
+        }
+
+        $guard->login($user);
+        $request->session()->put('koamishin.sso_reused.'.$this->flowId($request), $session);
+
+        return true;
+    }
+
+    public function ensureSingleSignOnStillAllowed(Request $request, TenantApplicationEnvironment $target, User $user): void
+    {
+        $session = $request->session()->get('koamishin.sso_reused.'.$this->flowId($request));
+        if ($session === null) {
+            return;
+        }
+
+        $sourceUser = is_array($session) ? $this->validatedSsoUser($session, $target) : null;
+        abort_unless($sourceUser instanceof User && $sourceUser->is($user), 403, 'Single sign-on is no longer available. Start again from the application.');
+    }
+
+    /** @param array<string, mixed> $session */
+    private function validatedSsoUser(array $session, TenantApplicationEnvironment $target): ?User
+    {
+        if (! $target->allowsSingleSignOn() || ! is_int($session['authenticated_at'] ?? null)
+            || $session['authenticated_at'] < now()->timestamp - self::SSO_MAX_AGE
+            || ! is_string($session['client_id'] ?? null) || ! is_string($session['fingerprint'] ?? null)) {
+            return null;
+        }
+
+        $source = $this->access->environmentForClient($session['client_id']);
+        $user = User::query()->find($session['user_id'] ?? null);
+        if (! $source instanceof TenantApplicationEnvironment || ! $source->allowsSingleSignOn()
+            || $source->application->tenant_id !== $target->application->tenant_id
+            || $source->environment !== $target->environment || ! $user instanceof User
+            || ! $this->access->allows($source, $user)
+            || ! hash_equals($session['fingerprint'], $this->ssoFingerprint($user))) {
+            return null;
+        }
+
+        return $user;
+    }
+
+    public function rememberSingleSignOn(Request $request, TenantApplicationEnvironment $environment, User $user, Response $response): void
+    {
+        if (! $environment->allowsSingleSignOn() || ! $response->isRedirection() || ! $this->access->allows($environment, $user)
+            || ($user->hasMfa() && ! $request->session()->get('koamishin.sso_mfa_verified.'.$this->flowId($request))
+                && ! $request->session()->has('koamishin.sso_reused.'.$this->flowId($request)))) {
+            return;
+        }
+
+        $location = $response->headers->get('Location');
+        parse_str(is_string($location) ? (string) parse_url($location, PHP_URL_QUERY) : '', $query);
+        if (! is_string($query['code'] ?? null) || $query['code'] === '') {
+            return;
+        }
+
+        $request->session()->put('koamishin.sso.'.$environment->application->tenant_id.'.'.$environment->environment, [
+            'client_id' => $environment->oauth_client_id,
+            'user_id' => $user->getKey(),
+            'authenticated_at' => $request->session()->get('koamishin.sso_reused.'.$this->flowId($request).'.authenticated_at', now()->timestamp),
+            'fingerprint' => $this->ssoFingerprint($user),
+        ]);
+    }
+
+    private function ssoFingerprint(User $user): string
+    {
+        return hash_hmac('sha256', implode('|', [
+            (string) $user->password,
+            (string) $user->two_factor_secret,
+            (string) $user->two_factor_confirmed_at,
+            (string) $user->app_authentication_secret,
+            (string) $user->has_email_authentication,
+        ]), (string) config('app.key'));
     }
 
     public function flowId(Request $request): ?string
@@ -280,6 +378,8 @@ class ApplicationAuthentication
             'password_hash_application_'.$id,
             'koamishin.application_state.'.$id,
             'koamishin.verification_sent.'.$id,
+            'koamishin.sso_reused.'.$id,
+            'koamishin.sso_mfa_verified.'.$id,
         ]);
 
         $socialFlows = $request->session()->get('koamishin.social_flows', []);

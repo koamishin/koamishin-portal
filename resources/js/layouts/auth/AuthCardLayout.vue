@@ -14,6 +14,8 @@ import { home } from '@/routes';
 defineProps<{
     title?: string;
     description?: string;
+    logoUrl?: string | null;
+    applicationName?: string;
 }>();
 </script>
 
@@ -28,7 +30,14 @@ defineProps<{
                 class="flex items-center gap-2 self-center font-medium"
             >
                 <div class="flex h-9 w-9 items-center justify-center">
+                    <img
+                        v-if="logoUrl"
+                        :src="logoUrl"
+                        :alt="applicationName || 'Application'"
+                        class="max-h-12 max-w-32 object-contain"
+                    />
                     <AppLogoIcon
+                        v-else
                         class="size-9 fill-current text-black dark:text-white"
                     />
                 </div>

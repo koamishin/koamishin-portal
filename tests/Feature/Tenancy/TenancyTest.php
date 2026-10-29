@@ -11,6 +11,7 @@ use App\Models\TenantApplication;
 use App\Models\User;
 use App\Services\OAuth\ApplicationProvisioner;
 use Filament\Facades\Filament;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Laravel\Passport\Client;
@@ -171,6 +172,59 @@ test('editing an application saves signup policy only for the selected environme
 
     expect($development->fresh()->settings)->toBe(['custom_setting' => 'development']);
     expect($production->fresh()->settings)->toBe(['allow_signups' => false, 'custom_setting' => 'production']);
+});
+
+test('application settings keep provider secrets encrypted and scoped to the selected environment', function (): void {
+    Role::query()->firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+    $admin = User::factory()->create();
+    $admin->assignRole('super_admin');
+    $tenant = Tenant::query()->create(['name' => 'Settings org', 'slug' => 'settings-org']);
+    $application = app(ApplicationProvisioner::class)->create($tenant, [
+        'name' => 'Settings app', 'framework' => 'laravel', 'environment' => 'development',
+        'redirect_uris' => ['http://localhost:8000/callback'],
+    ]);
+    $development = $application->environments()->where('environment', 'development')->sole();
+    $production = $application->environments()->where('environment', 'production')->sole();
+    actingAs($admin);
+    Filament::setCurrentPanel('admin');
+    Filament::setTenant($tenant);
+    Filament::bootCurrentPanel();
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->set('data.login_title', 'Welcome to Billing')
+        ->set('data.auth_layout', 'card')
+        ->set('data.email_verification_required', true)
+        ->set('data.passkeys_enabled', false)
+        ->set('data.sso_enabled', true)
+        ->set('data.social_github_mode', 'custom')
+        ->set('data.social_github_client_id', 'billing-client')
+        ->set('data.social_github_client_secret', 'billing-secret')
+        ->call('save', false)
+        ->assertHasNoErrors()
+        ->assertSet('data.social_github_client_secret', null);
+
+    $settings = $development->fresh()->settings;
+    expect($settings)->toMatchArray([
+        'login_title' => 'Welcome to Billing', 'auth_layout' => 'card',
+        'email_verification_required' => true, 'passkeys_enabled' => false, 'sso_enabled' => true,
+    ]);
+    expect($settings['social_providers']['github']['client_secret'])->not->toBe('billing-secret');
+    expect(Crypt::decryptString($settings['social_providers']['github']['client_secret']))->toBe('billing-secret');
+    expect(json_encode($settings))->not->toContain('billing-secret');
+    expect($production->fresh()->getSetting('sso_enabled', false))->toBeFalse();
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->assertSet('data.social_github_client_secret', null)
+        ->set('data.login_title', 'Updated heading')
+        ->call('save', false)
+        ->assertHasNoErrors();
+    expect(Crypt::decryptString($development->fresh()->settings['social_providers']['github']['client_secret']))->toBe('billing-secret');
+
+    Livewire::actingAs($admin)->test(EditTenantApplication::class, ['record' => $application->getKey()])
+        ->set('data.social_github_client_id', 'changed-client')
+        ->call('save', false)
+        ->assertHasErrors();
+    expect($development->fresh()->settings['social_providers']['github']['client_id'])->toBe('billing-client');
 });
 
 test('production provisioning refuses an insecure callback without creating a client', function (): void {

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\ApplicationUserMetadata;
+use App\Models\SocialAccount;
 use App\Models\Tenant;
 use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
@@ -14,6 +15,7 @@ use Illuminate\Auth\SessionGuard;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Testing\TestResponse;
@@ -183,6 +185,200 @@ function applicationFeatureSettings(array $values): void
     }
     app()->instance(ApplicationFeaturesSettings::class, $settings);
 }
+
+function establishApplicationSso(Client $client, TenantApplicationEnvironment $environment, User $user): void
+{
+    $environment->application->tenant->users()->syncWithoutDetaching([$user->getKey()]);
+    $environment->application->users('development')->syncWithoutDetaching([$user->getKey() => ['environment' => 'development']]);
+    [$flow, $login] = registrationLogin($client, $user);
+    $consent = get((string) $login->headers->get('Location'))->assertOk();
+    registrationAccessToken($client, registrationConsentToken($consent), $flow);
+}
+
+test('application login uses its own appearance and feature policies', function (): void {
+    applicationFeatureSettings(['email_verification_required' => false]);
+    Notification::fake();
+    [$client] = registrationTestEnvironment('custom-login', [
+        'allow_signups' => true,
+        'email_verification_required' => true,
+        'passkeys_enabled' => false,
+        'login_title' => 'Welcome to Billing',
+        'login_description' => 'Use your work account',
+        'login_logo_url' => 'https://assets.example.test/logo.svg',
+        'auth_layout' => 'card',
+    ]);
+    $user = User::factory()->unverified()->create();
+    $flow = registrationFlow($client, signup: false);
+    $page = registrationPageProps(get('/login?flow='.$flow)->assertOk());
+    expect($page['application'])->toMatchArray([
+        'loginTitle' => 'Welcome to Billing',
+        'loginDescription' => 'Use your work account',
+        'logoUrl' => 'https://assets.example.test/logo.svg',
+        'passkeysEnabled' => false,
+    ])->and($page['authLayout'])->toBe('card');
+    get('/passkeys/login/options?flow='.$flow)->assertForbidden();
+
+    $login = post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])->assertRedirect();
+    get((string) $login->headers->get('Location'))->assertRedirect(route('verification.notice', ['flow' => $flow]));
+    Notification::assertSentTo($user, VerifyEmail::class);
+});
+
+test('custom social connections use application credentials without exposing or changing Portal credentials', function (): void {
+    enableApplicationSocialLogin();
+    [$client] = registrationTestEnvironment('custom-social', [
+        'allow_signups' => true,
+        'social_providers' => [
+            'github' => ['mode' => 'custom', 'client_id' => 'custom-github-client', 'client_secret' => Crypt::encryptString('custom-secret')],
+            'google' => ['mode' => 'disabled'],
+        ],
+    ]);
+    $flow = registrationFlow($client, signup: false);
+    $page = registrationPageProps(get('/login?flow='.$flow)->assertOk());
+    $providers = collect($page['socialProviders'])->pluck('slug');
+    expect($providers->contains('github'))->toBeTrue();
+    expect($providers->contains('google'))->toBeFalse();
+    $serializedPage = json_encode($page, JSON_THROW_ON_ERROR);
+    expect(str_contains($serializedPage, 'custom-secret'))->toBeFalse();
+    expect(str_contains($serializedPage, 'custom-github-client'))->toBeFalse();
+
+    $redirect = get('/auth/github/redirect?flow='.$flow)->assertRedirect();
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $query);
+    expect($query['client_id'])->toBe('custom-github-client');
+    expect(config('services.github.client_id'))->not->toBe('custom-github-client');
+    get('/auth/google/redirect?flow='.$flow)->assertRedirect()->assertSessionHasErrors('social');
+});
+
+test('custom provider identifiers cannot identify users from another application connection', function (): void {
+    $settings = [
+        'allow_signups' => true,
+        'social_providers' => ['github' => ['mode' => 'custom', 'client_id' => 'one-client', 'client_secret' => Crypt::encryptString('secret-one')]],
+    ];
+    [$clientA] = registrationTestEnvironment('identity-a', $settings);
+    $settings['social_providers']['github']['client_id'] = 'other-client';
+    [$clientB] = registrationTestEnvironment('identity-b', $settings);
+    $flowA = registrationFlow($clientA, signup: false);
+    $flowB = registrationFlow($clientB, signup: false);
+    $redirectA = get('/auth/github/redirect?flow='.$flowA)->assertRedirect();
+    $redirectB = get('/auth/github/redirect?flow='.$flowB)->assertRedirect();
+    parse_str((string) parse_url((string) $redirectA->headers->get('Location'), PHP_URL_QUERY), $queryA);
+    parse_str((string) parse_url((string) $redirectB->headers->get('Location'), PHP_URL_QUERY), $queryB);
+
+    Socialite::fake('github', Laravel\Socialite\Two\User::fake(['id' => 'same-provider-id', 'email' => 'identity-a@example.test']));
+    get('/auth/github/callback?state='.$queryA['state'].'&code=test')->assertRedirect();
+    Socialite::fake('github', Laravel\Socialite\Two\User::fake(['id' => 'same-provider-id', 'email' => 'identity-b@example.test']));
+    get('/auth/github/callback?state='.$queryB['state'].'&code=test')->assertRedirect();
+
+    expect(SocialAccount::query()->where('provider_id', 'same-provider-id')->count())->toBe(2);
+    expect(User::query()->whereIn('email', ['identity-a@example.test', 'identity-b@example.test'])->count())->toBe(2);
+});
+
+test('custom social providers link existing accounts only when email ownership is established', function (string $provider, bool $verified, int $status): void {
+    [$client] = registrationTestEnvironment('verified-social-'.$provider.'-'.$status, [
+        'allow_signups' => true,
+        'social_providers' => [$provider => ['mode' => 'custom', 'client_id' => 'client-id', 'client_secret' => Crypt::encryptString('secret')]],
+    ]);
+    $user = User::factory()->create(['email' => 'existing-social@example.test']);
+    $flow = registrationFlow($client, signup: false);
+    $redirect = get('/auth/'.$provider.'/redirect?flow='.$flow)->assertRedirect();
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $query);
+    Socialite::fake($provider, Laravel\Socialite\Two\User::fake([
+        'id' => 'external-id', 'email' => $user->email, 'email_verified' => $verified,
+    ]));
+
+    get('/auth/'.$provider.'/callback?state='.$query['state'].'&code=test')->assertStatus($status);
+    expect($user->socialAccounts()->where('provider', $provider)->exists())->toBe($status === 302);
+})->with([
+    'verified Google' => ['google', true, 302],
+    'unverified Google' => ['google', false, 409],
+    'Facebook without an email ownership assertion' => ['facebook', false, 409],
+]);
+
+test('opted-in applications share sign-in only within their organization and environment', function (): void {
+    [$clientA, $environmentA] = registrationTestEnvironment('sso-source', ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientB, $environmentB] = registrationTestEnvironment('sso-target', ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientOther] = registrationTestEnvironment('sso-other', ['allow_signups' => true, 'sso_enabled' => true]);
+    $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
+    $user = User::factory()->create();
+    establishApplicationSso($clientA, $environmentA, $user);
+
+    $redirect = get(registrationAuthorizeUrl($clientB))->assertRedirect();
+    expect($redirect->headers->get('Location'))->toContain('/oauth/authorize?');
+    $consent = get((string) $redirect->headers->get('Location'))->assertOk();
+    expect(registrationPageProps($consent)['user']['id'])->toBe($user->id);
+    expect($environmentB->application->users('development')->whereKey($user)->exists())->toBeFalse();
+    expect(get(registrationAuthorizeUrl($clientOther))->headers->get('Location'))->toContain('/login?flow=');
+    expect(get(registrationAuthorizeUrl($clientB, ['prompt' => 'login']))->headers->get('Location'))->toContain('/login?flow=');
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $parameters);
+    registrationAccessToken($clientB, registrationConsentToken($consent), $parameters['flow']);
+
+    $silent = get(registrationAuthorizeUrl($clientB, ['prompt' => 'none']))->assertRedirect();
+    $completed = get((string) $silent->headers->get('Location'))->assertRedirect();
+    expect($completed->headers->get('Location'))->toStartWith($clientB->getAttribute('redirect_uris')[0])->toContain('code=');
+});
+
+test('single sign-on never crosses application environments', function (): void {
+    [$clientA, $environmentA] = registrationTestEnvironment('sso-development', ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientB, $environmentB] = registrationTestEnvironment('sso-production', ['allow_signups' => true, 'sso_enabled' => true]);
+    $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
+    $environmentB->update(['environment' => 'production']);
+    establishApplicationSso($clientA, $environmentA, User::factory()->create());
+
+    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/login?flow=');
+});
+
+test('an SSO source disabled after the consent page cannot authorize the target application', function (): void {
+    [$clientA, $environmentA] = registrationTestEnvironment('sso-policy-source', ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientB, $environmentB] = registrationTestEnvironment('sso-policy-target', ['allow_signups' => true, 'sso_enabled' => true]);
+    $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
+    $user = User::factory()->create();
+    establishApplicationSso($clientA, $environmentA, $user);
+    $redirect = get(registrationAuthorizeUrl($clientB))->assertRedirect();
+    $consent = get((string) $redirect->headers->get('Location'))->assertOk();
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $parameters);
+
+    $environmentA->update(['settings' => ['allow_signups' => true, 'sso_enabled' => false]]);
+    post('/oauth/authorize', ['flow' => $parameters['flow'], 'auth_token' => registrationConsentToken($consent)])->assertForbidden();
+    expect($environmentB->application->users('development')->whereKey($user)->exists())->toBeFalse();
+});
+
+test('single sign-on for an MFA user is established after the two-factor challenge', function (): void {
+    [$clientA, $environmentA] = registrationTestEnvironment('sso-mfa-source', ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientB, $environmentB] = registrationTestEnvironment('sso-mfa-target', ['allow_signups' => true, 'sso_enabled' => true]);
+    $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
+    $user = User::factory()->twoFactorConfirmed()->create([
+        'two_factor_secret' => encrypt('test-secret'),
+        'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code'])),
+    ]);
+    $environmentA->application->tenant->users()->attach($user);
+    $environmentA->application->users('development')->attach($user, ['environment' => 'development']);
+    $flow = registrationFlow($clientA, signup: false);
+    post('/login', ['flow' => $flow, 'email' => $user->email, 'password' => 'password'])
+        ->assertRedirect(route('two-factor.login', ['flow' => $flow]));
+    $challenge = post('/two-factor-challenge', ['flow' => $flow, 'recovery_code' => 'recovery-code'])->assertRedirect();
+    $consent = get((string) $challenge->headers->get('Location'))->assertOk();
+    registrationAccessToken($clientA, registrationConsentToken($consent), $flow);
+
+    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/oauth/authorize?');
+});
+
+test('single sign-on is rejected when either application opts out or the source session expires', function (string $reason): void {
+    [$clientA, $environmentA] = registrationTestEnvironment('sso-source-'.$reason, ['allow_signups' => true, 'sso_enabled' => true]);
+    [$clientB, $environmentB] = registrationTestEnvironment('sso-target-'.$reason, ['allow_signups' => true, 'sso_enabled' => true]);
+    $environmentB->application->update(['tenant_id' => $environmentA->application->tenant_id]);
+    $user = User::factory()->create();
+    establishApplicationSso($clientA, $environmentA, $user);
+    if ($reason === 'source') {
+        $environmentA->update(['settings' => ['allow_signups' => true, 'sso_enabled' => false]]);
+    } elseif ($reason === 'target') {
+        $environmentB->update(['settings' => ['allow_signups' => true, 'sso_enabled' => false]]);
+    } elseif ($reason === 'password') {
+        $user->update(['password' => 'new-password']);
+    } else {
+        travel(9)->hours();
+    }
+
+    expect(get(registrationAuthorizeUrl($clientB))->headers->get('Location'))->toContain('/login?flow=');
+})->with(['source', 'target', 'password', 'expiry']);
 
 test('application registration displays its context and resumes OAuth after enrolling the new user', function (): void {
     applicationFeatureSettings(['email_verification_required' => false]);
@@ -624,6 +820,26 @@ test('social login returns to its application flow without changing the portal s
     expect($callback->headers->get('Location'))->toContain('flow='.$flow);
     expect(registrationPageProps(get((string) $callback->headers->get('Location'))->assertOk())['user']['id'])->toBe($user->id);
     expect(Auth::guard('web')->id())->toBe($administrator->getKey());
+});
+
+test('social login requires an enrolled two-factor challenge before authorizing an application', function (): void {
+    enableApplicationSocialLogin();
+    [$client] = registrationTestEnvironment('social-mfa');
+    $user = User::factory()->twoFactorConfirmed()->create([
+        'two_factor_secret' => encrypt('test-secret'),
+        'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code'])),
+    ]);
+    $flow = registrationFlow($client, signup: false);
+    $redirect = get('/auth/github/redirect?flow='.$flow)->assertRedirect();
+    parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $query);
+    Socialite::fake('github', Laravel\Socialite\Two\User::fake(['id' => 'mfa-social-id', 'email' => $user->email]));
+
+    get('/auth/github/callback?state='.$query['state'].'&code=test')
+        ->assertRedirect(route('two-factor.login', ['flow' => $flow]));
+    $authorize = session('koamishin.application_flows.'.$flow.'.authorize_url');
+    get($authorize)->assertRedirect(route('login', ['flow' => $flow]));
+    $challenge = post('/two-factor-challenge', ['flow' => $flow, 'recovery_code' => 'recovery-code'])->assertRedirect();
+    expect(registrationPageProps(get((string) $challenge->headers->get('Location'))->assertOk())['user']['id'])->toBe($user->id);
 });
 
 test('social login cannot create a new account when application signup is closed', function (): void {

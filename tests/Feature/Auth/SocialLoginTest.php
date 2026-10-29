@@ -9,6 +9,11 @@ use Laravel\Socialite\Facades\Socialite;
 use Laravel\Socialite\Two\User as SocialiteUser;
 use Spatie\Permission\Models\Role;
 
+use function Pest\Laravel\assertAuthenticatedAs;
+use function Pest\Laravel\assertGuest;
+use function Pest\Laravel\get;
+use function Pest\Laravel\post;
+
 beforeEach(function (): void {
     $this->artisan('migrate', ['--path' => 'database/settings', '--no-interaction' => true]);
     app()->forgetInstance(SocialLoginSettings::class);
@@ -100,6 +105,21 @@ test('callback with existing social account logs in without creating a new user'
     expect($user->socialAccounts()->where('provider', 'github')->first()->nickname)->toBe('updated');
 });
 
+test('Portal social login challenges an account with two-factor authentication', function (): void {
+    enableGithub();
+    $user = User::factory()->twoFactorConfirmed()->create([
+        'email' => 'two-factor-social@example.test',
+        'two_factor_secret' => encrypt('test-secret'),
+        'two_factor_recovery_codes' => encrypt(json_encode(['recovery-code'])),
+    ]);
+    Socialite::fake('github', buildSocialiteUser('gh-mfa', $user->email));
+
+    get(route('auth.social.callback', ['provider' => 'github']))->assertRedirect(route('two-factor.login'));
+    assertGuest();
+    post('/two-factor-challenge', ['recovery_code' => 'recovery-code'])->assertRedirect();
+    assertAuthenticatedAs($user);
+});
+
 test('callback auto links to existing verified user with matching email', function (): void {
     enableGithub();
 
@@ -135,6 +155,22 @@ test('callback refuses to link to existing unverified user', function (): void {
     expect(SocialAccount::query()->where('provider', 'github')->count())->toBe(0);
     expect(User::query()->count())->toBe(1);
 });
+
+test('Portal social login cannot link an existing account without verified provider email', function (string $provider): void {
+    $settings = app(SocialLoginSettings::class);
+    $settings->{$provider.'_enabled'} = true;
+    $settings->{$provider.'_client_id'} = 'client-id';
+    $settings->{$provider.'_client_secret'} = 'client-secret';
+    $settings->save();
+    app()->forgetInstance(SocialLoginSettings::class);
+    $user = User::factory()->create(['email' => 'existing@example.test']);
+    Socialite::fake($provider, SocialiteUser::fake([
+        'id' => 'external-id', 'email' => $user->email, 'email_verified' => false,
+    ]));
+
+    get(route('auth.social.callback', ['provider' => $provider]))->assertStatus(409);
+    expect($user->socialAccounts()->exists())->toBeFalse();
+})->with(['google', 'facebook']);
 
 test('redirect to a disabled provider returns an error', function (): void {
     $socialLoginSettings = app(SocialLoginSettings::class);
@@ -190,4 +226,13 @@ test('handleInertiaRequests only exposes enabled providers', function (): void {
     expect($slugs)->toContain('github');
     expect($slugs)->toContain('google');
     expect($slugs)->not->toContain('facebook');
+});
+
+test('rolling back connection scopes refuses to discard overlapping social identities', function (): void {
+    SocialAccount::factory()->create(['provider' => 'github', 'provider_id' => 'overlapping-id', 'connection_scope' => 'app-one']);
+    SocialAccount::factory()->create(['provider' => 'github', 'provider_id' => 'overlapping-id', 'connection_scope' => 'app-two']);
+    $migration = require database_path('migrations/2026_10_29_091110_scope_social_accounts_to_connections.php');
+
+    expect(fn () => $migration->down())->toThrow(RuntimeException::class);
+    expect(SocialAccount::query()->where('provider_id', 'overlapping-id')->count())->toBe(2);
 });

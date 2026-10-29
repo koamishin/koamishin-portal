@@ -220,7 +220,7 @@ In the test user's browser profile:
 4. Open App B's `/login` in the same browser profile. The Portal displays App B's login form and requires the user to authenticate again, even when a Portal session exists. If the user is not enrolled in App B, self-service signup must also be enabled there; approving App B's consent request adds that membership before returning to App B.
 5. Compare the dashboards: the Portal user ID should match, while each app has its own local user row and application ID. Each app keeps its own session, app-owned Eloquent relationships, and metadata.
 
-Each application login starts a separate authentication flow. The Portal account can be shared, but a Portal session or a login to App A does not automatically sign the user into App B. Authorization consent and application access remain specific to the requesting app.
+Each application login starts a separate authentication flow. By default, a Portal session or a login to App A does not automatically sign the user into App B. Administrators can opt both applications into SSO within the same organization and environment; authorization consent and application access remain specific to the requesting app.
 
 ## 5. Add custom metadata from a trusted backend
 

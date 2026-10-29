@@ -10,6 +10,8 @@ const name = page.props.name;
 defineProps<{
     title?: string;
     description?: string;
+    logoUrl?: string | null;
+    applicationName?: string;
 }>();
 </script>
 
@@ -26,8 +28,17 @@ defineProps<{
                 :href="home()"
                 class="relative z-20 flex items-center text-lg font-medium"
             >
-                <AppLogoIcon class="mr-2 size-8 fill-current text-white" />
-                {{ name }}
+                <img
+                    v-if="logoUrl"
+                    :src="logoUrl"
+                    :alt="applicationName || 'Application'"
+                    class="mr-2 max-h-12 max-w-32 object-contain"
+                />
+                <AppLogoIcon
+                    v-else
+                    class="mr-2 size-8 fill-current text-white"
+                />
+                {{ applicationName || name }}
             </Link>
         </div>
         <div class="lg:p-8">
@@ -35,6 +46,12 @@ defineProps<{
                 class="mx-auto flex w-full flex-col justify-center space-y-6 sm:w-[350px]"
             >
                 <div class="flex flex-col space-y-2 text-center">
+                    <img
+                        v-if="logoUrl"
+                        :src="logoUrl"
+                        :alt="applicationName || 'Application'"
+                        class="mx-auto mb-3 max-h-12 max-w-32 object-contain lg:hidden"
+                    />
                     <h1 class="text-xl font-medium tracking-tight" v-if="title">
                         {{ title }}
                     </h1>

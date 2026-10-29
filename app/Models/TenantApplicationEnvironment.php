@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Settings\ApplicationFeaturesSettings;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -71,5 +72,21 @@ class TenantApplicationEnvironment extends Model
     public function getSetting(string $key, mixed $default = null): mixed
     {
         return $this->settings[$key] ?? $default;
+    }
+
+    public function requiresEmailVerification(): bool
+    {
+        return app(ApplicationFeaturesSettings::class)->email_verification_required
+            || $this->getSetting('email_verification_required', false) === true;
+    }
+
+    public function allowsPasskeys(): bool
+    {
+        return $this->getSetting('passkeys_enabled', true) === true;
+    }
+
+    public function allowsSingleSignOn(): bool
+    {
+        return $this->getSetting('sso_enabled', false) === true;
     }
 }

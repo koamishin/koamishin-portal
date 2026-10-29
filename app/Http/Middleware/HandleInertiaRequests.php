@@ -4,8 +4,9 @@ namespace App\Http\Middleware;
 
 use App\Enums\SocialLoginProvider;
 use App\Features\FeatureRegistry;
+use App\Models\TenantApplicationEnvironment;
+use App\Services\OAuth\ApplicationSocialConnections;
 use App\Settings\ApplicationFeaturesSettings;
-use App\Settings\SocialLoginSettings;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -43,18 +44,6 @@ class HandleInertiaRequests extends Middleware
             ];
         }
 
-        $socialLoginSettings = app(SocialLoginSettings::class);
-
-        $socialProviders = collect(SocialLoginProvider::cases())
-            ->filter(fn (SocialLoginProvider $socialLoginProvider): bool => $socialLoginSettings->isProviderEnabled($socialLoginProvider))
-            ->map(fn (SocialLoginProvider $socialLoginProvider): array => [
-                'slug' => $socialLoginProvider->value,
-                'label' => $socialLoginProvider->label(),
-                'url' => route('auth.social.redirect', ['provider' => $socialLoginProvider->value]),
-            ])
-            ->values()
-            ->all();
-
         return [
             ...parent::share($request),
             'name' => config('app.name'),
@@ -63,10 +52,29 @@ class HandleInertiaRequests extends Middleware
                 'impersonating' => app('impersonate')->isImpersonating(),
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
-            'authLayout' => app(ApplicationFeaturesSettings::class)->auth_layout,
+            'authLayout' => function () use ($request): string {
+                $environment = $request->attributes->get('koamishin.application_environment');
+                $layout = $environment instanceof TenantApplicationEnvironment ? $environment->getSetting('auth_layout') : null;
+
+                return in_array($layout, ['simple', 'card', 'split'], true)
+                    ? $layout
+                    : app(ApplicationFeaturesSettings::class)->auth_layout;
+            },
             'notificationsEnabled' => app(ApplicationFeaturesSettings::class)->notifications_enabled,
             'settingsFeatures' => $settingsFeatures,
-            'socialProviders' => $socialProviders,
+            'socialProviders' => function () use ($request): array {
+                $environment = $request->attributes->get('koamishin.application_environment');
+                $environment = $environment instanceof TenantApplicationEnvironment ? $environment : null;
+                $connections = app(ApplicationSocialConnections::class);
+
+                return collect(SocialLoginProvider::cases())
+                    ->filter(fn (SocialLoginProvider $provider): bool => $connections->credentials($provider, $environment) !== null)
+                    ->map(fn (SocialLoginProvider $provider): array => [
+                        'slug' => $provider->value,
+                        'label' => $provider->label(),
+                        'url' => route('auth.social.redirect', ['provider' => $provider->value]),
+                    ])->values()->all();
+            },
         ];
     }
 }

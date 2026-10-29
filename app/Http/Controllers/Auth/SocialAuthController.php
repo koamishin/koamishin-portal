@@ -11,16 +11,23 @@ use App\Models\SocialAccount;
 use App\Models\TenantApplicationEnvironment;
 use App\Models\User;
 use App\Services\OAuth\ApplicationAuthentication;
+use App\Services\OAuth\ApplicationSocialConnections;
 use App\Settings\ApplicationFeaturesSettings;
-use App\Settings\SocialLoginSettings;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Laravel\Fortify\Events\TwoFactorAuthenticationChallenged;
+use Laravel\Fortify\Features;
 use Laravel\Socialite\Contracts\Provider as ProviderContract;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\SocialiteManager;
+use Laravel\Socialite\Two\FacebookProvider;
+use Laravel\Socialite\Two\GithubProvider;
+use Laravel\Socialite\Two\GoogleProvider;
+use Laravel\Socialite\Two\User as SocialiteUser;
 use Spatie\Permission\Models\Role;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
@@ -28,7 +35,7 @@ use Throwable;
 class SocialAuthController extends Controller
 {
     public function __construct(
-        private readonly SocialLoginSettings $socialLoginSettings,
+        private readonly ApplicationSocialConnections $socialConnections,
         private readonly ApplicationFeaturesSettings $applicationFeaturesSettings,
     ) {}
 
@@ -40,26 +47,15 @@ class SocialAuthController extends Controller
             abort(404);
         }
 
-        if (! $this->socialLoginSettings->isProviderEnabled($providerEnum)) {
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors(['social' => 'This social login provider is not enabled.']);
-        }
-
-        $credentials = $this->socialLoginSettings->resolveCredentials($providerEnum);
+        $environment = $request->attributes->get('koamishin.application_environment');
+        $credentials = $this->socialConnections->credentials($providerEnum, $environment instanceof TenantApplicationEnvironment ? $environment : null);
         if ($credentials === null) {
             return redirect()
                 ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not configured.']);
         }
 
-        config([
-            "services.{$providerEnum->value}.client_id" => $credentials['client_id'],
-            "services.{$providerEnum->value}.client_secret" => $credentials['client_secret'],
-            "services.{$providerEnum->value}.redirect" => $credentials['redirect'],
-        ]);
-
-        $driver = $this->buildDriver($providerEnum);
+        $driver = $this->buildDriver($providerEnum, $credentials);
 
         return $driver->redirect();
     }
@@ -72,27 +68,16 @@ class SocialAuthController extends Controller
             abort(404);
         }
 
-        if (! $this->socialLoginSettings->isProviderEnabled($providerEnum)) {
-            return redirect()
-                ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
-                ->withErrors(['social' => 'This social login provider is not enabled.']);
-        }
-
-        $credentials = $this->socialLoginSettings->resolveCredentials($providerEnum);
+        $environment = $request->attributes->get('koamishin.application_environment');
+        $credentials = $this->socialConnections->credentials($providerEnum, $environment instanceof TenantApplicationEnvironment ? $environment : null);
         if ($credentials === null) {
             return redirect()
                 ->route('login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]))
                 ->withErrors(['social' => 'This social login provider is not configured.']);
         }
 
-        config([
-            "services.{$providerEnum->value}.client_id" => $credentials['client_id'],
-            "services.{$providerEnum->value}.client_secret" => $credentials['client_secret'],
-            "services.{$providerEnum->value}.redirect" => $credentials['redirect'],
-        ]);
-
         try {
-            $socialUser = $this->buildDriver($providerEnum)->user();
+            $socialUser = $this->buildDriver($providerEnum, $credentials)->user();
         } catch (Throwable $e) {
             Log::warning('Social login callback failed', [
                 'provider' => $providerEnum->value,
@@ -104,10 +89,15 @@ class SocialAuthController extends Controller
                 ->withErrors(['social' => 'Unable to authenticate with '.($providerEnum->label()).'. Please try again.']);
         }
 
-        $user = DB::transaction(function () use ($providerEnum, $socialUser): User {
+        abort_unless(filled($socialUser->getId()) && filter_var($socialUser->getEmail(), FILTER_VALIDATE_EMAIL), 422, 'The provider did not return an email address.');
+        $verifiedEmail = $providerEnum === SocialLoginProvider::Github
+            || ($providerEnum === SocialLoginProvider::Google && $socialUser instanceof SocialiteUser && ($socialUser->getRaw()['email_verified'] ?? false) === true);
+
+        $user = DB::transaction(function () use ($providerEnum, $socialUser, $credentials, $verifiedEmail): User {
             $existingAccount = SocialAccount::query()
                 ->where('provider', $providerEnum->value)
                 ->where('provider_id', $socialUser->getId())
+                ->where('connection_scope', $credentials['scope'])
                 ->first();
 
             if ($existingAccount instanceof SocialAccount) {
@@ -116,6 +106,9 @@ class SocialAuthController extends Controller
                 $user = User::query()->where('email', $socialUser->getEmail())->first();
 
                 if ($user instanceof User) {
+                    if (! $verifiedEmail) {
+                        abort(409, 'This provider did not confirm ownership of the existing account email. Sign in with another method.');
+                    }
                     if ($user->email_verified_at === null) {
                         abort(409, 'A user with that email exists but is not yet verified. Please verify your email first.');
                     }
@@ -125,18 +118,18 @@ class SocialAuthController extends Controller
                     if ($environment instanceof TenantApplicationEnvironment) {
                         abort_unless(app(ApplicationAuthentication::class)->allowsSignups($environment), 403, 'Registration is closed for this application.');
                     }
-                    $user = $this->createUserFromSocial($socialUser);
+                    $user = $this->createUserFromSocial($socialUser, $verifiedEmail);
                 }
             }
 
-            $this->upsertSocialAccount($user, $providerEnum, $socialUser);
+            $this->upsertSocialAccount($user, $providerEnum, $socialUser, $credentials['scope']);
 
             $this->refreshProfilePhoto($user, $socialUser);
 
             return $user;
         });
 
-        if (isset($user) && $user->email_verified_at === null) {
+        if ($verifiedEmail && $user->email_verified_at === null) {
             $user->forceFill(['email_verified_at' => now()])->save();
         }
 
@@ -148,6 +141,13 @@ class SocialAuthController extends Controller
                         ? 'Your account has been suspended: '.$user->ban_reason
                         : 'Your account has been suspended. Please contact support.',
                 ]);
+        }
+
+        if (Features::enabled(Features::twoFactorAuthentication()) && $user->two_factor_secret && $user->two_factor_confirmed_at) {
+            $request->session()->put(['login.id' => $user->getKey(), 'login.remember' => false]);
+            TwoFactorAuthenticationChallenged::dispatch($user);
+
+            return redirect()->route('two-factor.login', array_filter(['flow' => app(ApplicationAuthentication::class)->flowId($request)]));
         }
 
         $guard = $request->attributes->get('koamishin.application_guard');
@@ -164,12 +164,24 @@ class SocialAuthController extends Controller
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
-    private function buildDriver(SocialLoginProvider $socialLoginProvider): ProviderContract
+    /** @param array{client_id: string, client_secret: string, redirect: string, scope: string} $credentials */
+    private function buildDriver(SocialLoginProvider $socialLoginProvider, array $credentials): ProviderContract
     {
-        return Socialite::driver($socialLoginProvider->value);
+        $manager = Socialite::getFacadeRoot();
+        if (! $manager instanceof SocialiteManager) {
+            return Socialite::driver($socialLoginProvider->value);
+        }
+
+        $provider = match ($socialLoginProvider) {
+            SocialLoginProvider::Github => GithubProvider::class,
+            SocialLoginProvider::Google => GoogleProvider::class,
+            SocialLoginProvider::Facebook => FacebookProvider::class,
+        };
+
+        return $manager->buildProvider($provider, $credentials);
     }
 
-    private function createUserFromSocial(\Laravel\Socialite\Contracts\User $socialUser): User
+    private function createUserFromSocial(\Laravel\Socialite\Contracts\User $socialUser, bool $verifiedEmail): User
     {
         $defaultRole = $this->applicationFeaturesSettings->default_user_role;
 
@@ -177,7 +189,7 @@ class SocialAuthController extends Controller
             'name' => $socialUser->getName() ?? $socialUser->getNickname() ?? 'User',
             'email' => $socialUser->getEmail(),
             'password' => null,
-            'email_verified_at' => now(),
+            'email_verified_at' => $verifiedEmail ? now() : null,
         ]);
 
         $roleName = filled($defaultRole) ? $defaultRole : RoleEnums::USER->value;
@@ -189,19 +201,20 @@ class SocialAuthController extends Controller
         return $user;
     }
 
-    private function upsertSocialAccount(User $user, SocialLoginProvider $socialLoginProvider, \Laravel\Socialite\Contracts\User $socialUser): SocialAccount
+    private function upsertSocialAccount(User $user, SocialLoginProvider $socialLoginProvider, \Laravel\Socialite\Contracts\User $socialUser, string $connectionScope): SocialAccount
     {
         return SocialAccount::query()->updateOrCreate(
             [
                 'user_id' => $user->id,
                 'provider' => $socialLoginProvider->value,
+                'connection_scope' => $connectionScope,
             ],
             [
                 'provider_id' => $socialUser->getId(),
                 'nickname' => $socialUser->getNickname(),
                 'avatar_url' => $socialUser->getAvatar(),
-                'access_token' => $socialUser->token,
-                'refresh_token' => $socialUser->refreshToken,
+                'access_token' => $connectionScope === 'portal' ? $socialUser->token : null,
+                'refresh_token' => $connectionScope === 'portal' ? $socialUser->refreshToken : null,
                 'expires_at' => $socialUser->expiresIn ? now()->addSeconds((int) $socialUser->expiresIn) : null,
             ],
         );

@@ -93,7 +93,10 @@ class User extends Authenticatable implements FilamentUser, HasAppAuthentication
 
     public function sendEmailVerificationNotification(): void
     {
-        if (! app(ApplicationFeaturesSettings::class)->email_verification_required) {
+        $environment = request()->attributes->get('koamishin.application_environment');
+        if ($environment instanceof TenantApplicationEnvironment
+            ? ! $environment->requiresEmailVerification()
+            : ! app(ApplicationFeaturesSettings::class)->email_verification_required) {
             return;
         }
 

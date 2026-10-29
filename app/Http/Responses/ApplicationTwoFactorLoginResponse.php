@@ -14,6 +14,12 @@ class ApplicationTwoFactorLoginResponse extends TwoFactorLoginResponse
     /** @param Request $request */
     public function toResponse($request): Response
     {
-        return app(ApplicationAuthentication::class)->resume($request) ?? parent::toResponse($request);
+        $authentication = app(ApplicationAuthentication::class);
+        $flow = $authentication->flowId($request);
+        if ($flow !== null) {
+            $request->session()->put('koamishin.sso_mfa_verified.'.$flow, true);
+        }
+
+        return $authentication->resume($request) ?? parent::toResponse($request);
     }
 }

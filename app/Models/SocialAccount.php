@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $user_id
  * @property string $provider
  * @property string $provider_id
+ * @property string $connection_scope
  * @property string|null $nickname
  * @property string|null $avatar_url
  * @property string|null $access_token
@@ -31,6 +32,7 @@ class SocialAccount extends Model
         'user_id',
         'provider',
         'provider_id',
+        'connection_scope',
         'nickname',
         'avatar_url',
         'access_token',

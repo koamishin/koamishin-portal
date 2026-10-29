@@ -43,9 +43,12 @@ class EnsureOAuthApplicationAccess
             }
 
             return $this->authentication->withinFlow($request, function () use ($request, $next): Response {
+                $environment = $request->attributes->get('koamishin.application_environment');
+                abort_if($environment instanceof TenantApplicationEnvironment && ! $environment->allowsPasskeys()
+                    && $request->is('passkeys/login', 'passkeys/login/options'), 403, 'Passkey sign-in is disabled for this application.');
                 if ($request->is('email/verify') && $this->authentication->flowId($request) !== null
-                    && $request->user() instanceof User
-                    && (! app(ApplicationFeaturesSettings::class)->email_verification_required || $request->user()->hasVerifiedEmail())) {
+                    && $environment instanceof TenantApplicationEnvironment && $request->user() instanceof User
+                    && (! $environment->requiresEmailVerification() || $request->user()->hasVerifiedEmail())) {
                     return $this->authentication->resume($request);
                 }
                 $response = $next($request);
@@ -108,27 +111,40 @@ class EnsureOAuthApplicationAccess
         $request->attributes->set('koamishin.application_environment', $environment);
 
         if ($request->query('flow') === null) {
-            if (in_array('none', explode(' ', (string) $request->query('prompt', '')), true)) {
-                throw PassportOAuthServerException::loginRequired($authorization);
-            }
             $flow = $this->authentication->begin($request, $clientId);
             $signup = $request->query('screen_hint') === 'signup';
             abort_if($signup && ! app(ApplicationFeaturesSettings::class)->registration_enabled, 403, 'Registration is disabled.');
             abort_if($signup && ! $this->authentication->allowsSignups($environment), 403, 'Registration is closed for this application.');
+            $prompts = explode(' ', (string) $request->query('prompt', ''));
+            if (! $signup && ! in_array('login', $prompts, true) && $this->authentication->reuseSingleSignOn($request, $environment)) {
+                return $this->authentication->resume($request);
+            }
+            if (in_array('none', $prompts, true)) {
+                $this->authentication->finish($request);
+                throw PassportOAuthServerException::loginRequired($authorization);
+            }
 
             return redirect()->route($signup ? 'register' : 'login', ['flow' => $flow['id']]);
         }
 
         $this->authentication->begin($request, $clientId);
 
-        return $this->authentication->withinFlow($request, function () use ($request, $next, $environment): Response {
+        return $this->authentication->withinFlow($request, function () use ($request, $next, $environment, $authorization): Response {
             $user = $request->user();
             if (! $user instanceof User) {
+                if (in_array('none', explode(' ', (string) $request->query('prompt', '')), true)) {
+                    throw PassportOAuthServerException::loginRequired($authorization);
+                }
+
                 return redirect()->route('login', ['flow' => $this->authentication->flowId($request)]);
             }
 
             abort_if($user->isBanned(), 403);
-            if (app(ApplicationFeaturesSettings::class)->email_verification_required && ! $user->hasVerifiedEmail()) {
+            $this->authentication->ensureSingleSignOnStillAllowed($request, $environment, $user);
+            if ($environment->requiresEmailVerification() && ! $user->hasVerifiedEmail()) {
+                if (in_array('none', explode(' ', (string) $request->query('prompt', '')), true)) {
+                    throw PassportOAuthServerException::loginRequired($authorization);
+                }
                 $flow = $this->authentication->flowId($request);
                 if (! $request->session()->get('koamishin.verification_sent.'.$flow)) {
                     $user->sendEmailVerificationNotification();
@@ -139,6 +155,9 @@ class EnsureOAuthApplicationAccess
             $prompts = array_filter(explode(' ', (string) $request->query('prompt', '')));
             $prompts = array_diff($prompts, ['login']);
             if (! $this->access->allows($environment, $user)) {
+                if (in_array('none', $prompts, true)) {
+                    throw PassportOAuthServerException::consentRequired($authorization);
+                }
                 abort_unless($this->authentication->allowsSignups($environment), 403, 'You do not have access to this application.');
                 $prompts[] = 'consent';
                 $request->attributes->set('koamishin.joining_application', true);
@@ -147,6 +166,7 @@ class EnsureOAuthApplicationAccess
 
             $response = $next($request);
             if ($response->isRedirection()) {
+                $this->authentication->rememberSingleSignOn($request, $environment, $user, $response);
                 $this->authentication->finish($request);
             }
 
@@ -163,6 +183,10 @@ class EnsureOAuthApplicationAccess
         return $this->authentication->withinFlow($request, function () use ($request, $next): Response {
             $response = $this->completeAuthorization($request, $next);
             if ($response->isRedirection()) {
+                $environment = $request->attributes->get('koamishin.application_environment');
+                if ($request->isMethod('POST') && $environment instanceof TenantApplicationEnvironment && $request->user() instanceof User) {
+                    $this->authentication->rememberSingleSignOn($request, $environment, $request->user(), $response);
+                }
                 $this->authentication->finish($request);
             }
 
@@ -189,7 +213,8 @@ class EnsureOAuthApplicationAccess
             return $next($request);
         }
 
-        abort_if(app(ApplicationFeaturesSettings::class)->email_verification_required && ! $user->hasVerifiedEmail(), 403, 'Verify your email address before authorizing this application.');
+        $this->authentication->ensureSingleSignOnStillAllowed($request, $environment, $user);
+        abort_if($environment->requiresEmailVerification() && ! $user->hasVerifiedEmail(), 403, 'Verify your email address before authorizing this application.');
 
         if ($this->access->allows($environment, $user)) {
             return $next($request);

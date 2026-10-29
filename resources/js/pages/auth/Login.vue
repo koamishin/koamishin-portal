@@ -21,6 +21,9 @@ const props = defineProps<{
         organization: string;
         environment: string;
         allowSignups: boolean;
+        passkeysEnabled: boolean;
+        loginTitle?: string | null;
+        loginDescription?: string | null;
     } | null;
     flow?: string | null;
     status?: string;
@@ -30,21 +33,24 @@ const props = defineProps<{
 
 const page =
     usePage<AppPageProps<{ settingsFeatures?: { passkeys?: boolean } }>>();
-const passkeysEnabled = (page.props.settingsFeatures?.passkeys ??
-    true) as boolean;
+const passkeysEnabled = props.application
+    ? props.application.passkeysEnabled
+    : (page.props.settingsFeatures?.passkeys ?? true);
 </script>
 
 <template>
     <AuthBase
         :title="
-            application
+            application?.loginTitle ||
+            (application
                 ? `Sign in to ${application.name}`
-                : 'Log in to your account'
+                : 'Log in to your account')
         "
         :description="
-            application
+            application?.loginDescription ||
+            (application
                 ? `${application.organization} · ${application.environment}`
-                : 'Enter your email and password below to log in'
+                : 'Enter your email and password below to log in')
         "
     >
         <Head
