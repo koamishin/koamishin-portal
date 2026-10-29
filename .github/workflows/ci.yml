@@ -177,6 +177,9 @@ jobs:
       - name: Run PHP SDK integration tests
         run: php artisan test --compact packages/koamishin-auth-php/tests
 
+      - name: Run JavaScript SDK tests
+        run: ./node_modules/.bin/vitest run --config packages/koamishin-auth-js/vitest.config.mjs packages/koamishin-auth-js/src/index.test.ts
+
   frontend:
     name: Frontend Linting
     runs-on: ubuntu-latest
